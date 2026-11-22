@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Trash2 } from 'lucide-react';
+import { ChevronDown, RotateCcw, Trash2 } from 'lucide-react';
 import {
   formatProtocolLabel,
   resolveProtocolVersion,
@@ -25,6 +25,9 @@ export function DeviceProtocolView({
   onClearPacketLog,
 }: DeviceProtocolViewProps) {
   const [logFilter, setLogFilter] = useState<'all' | 'tx' | 'rx' | 'system'>('all');
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+
+  const isDefaultBleTuning = watch.mtuSize === 20 && watch.writeDelayMs === 50;
 
   const filteredLog =
     logFilter === 'all'
@@ -119,56 +122,103 @@ export function DeviceProtocolView({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-            <div>
-              <div className="flex items-center justify-between text-xs">
-                <label htmlFor="mtu-slider" className="font-medium text-[#475569]">
-                  MTU Chunk Size
-                </label>
-                <span className="font-mono font-medium text-[#0F172A] tabular-nums">
-                  {watch.mtuSize} bytes
-                </span>
+          <div className="border-t border-[#E2E8F0] pt-4">
+            <button
+              type="button"
+              aria-expanded={advancedOpen}
+              onClick={() => setAdvancedOpen((prev) => !prev)}
+              className="flex w-full items-center justify-between gap-4 rounded-xl py-1 text-left focus-visible:outline-2 focus-visible:outline-[#2563EB]"
+            >
+              <div>
+                <div className="text-sm font-medium text-[#0F172A]">
+                  Advanced BLE Settings
+                </div>
+                <div className="mt-0.5 font-mono text-xs text-[#64748B] tabular-nums">
+                  MTU {watch.mtuSize}B · Write delay {watch.writeDelayMs} ms
+                  {isDefaultBleTuning ? ' · Defaults' : ' · Custom'}
+                </div>
               </div>
-              <input
-                id="mtu-slider"
-                type="range"
-                min={20}
-                max={244}
-                step={4}
-                value={watch.mtuSize}
-                onChange={(e) => onChangeMtuSize(Number(e.target.value))}
-                className="mt-2 w-full accent-[#2563EB]"
+              <ChevronDown
+                className={`h-4 w-4 shrink-0 text-[#64748B] transition-transform duration-150 ${
+                  advancedOpen ? 'rotate-180' : ''
+                }`}
               />
-              <div className="mt-1 flex justify-between font-mono text-[11px] text-[#94A3B8] tabular-nums">
-                <span>20B (Safe default)</span>
-                <span>244B (Fast V2)</span>
-              </div>
-            </div>
+            </button>
 
-            <div>
-              <div className="flex items-center justify-between text-xs">
-                <label htmlFor="delay-slider" className="font-medium text-[#475569]">
-                  Inter-Chunk Write Delay
-                </label>
-                <span className="font-mono font-medium text-[#0F172A] tabular-nums">
-                  {watch.writeDelayMs} ms
-                </span>
+            {advancedOpen && (
+              <div className="mt-4 space-y-5 pt-2">
+                <p className="text-xs text-[#64748B]">
+                  Defaults (20B chunk, 50 ms delay) are safe for all 0xFEEA watches. Increase write delay if long notifications drop, or raise MTU on newer BLE 5.0 watches.
+                </p>
+
+                <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                  <div>
+                    <div className="flex items-center justify-between text-xs">
+                      <label htmlFor="mtu-slider" className="font-medium text-[#475569]">
+                        MTU Chunk Size
+                      </label>
+                      <span className="font-mono font-medium text-[#0F172A] tabular-nums">
+                        {watch.mtuSize} bytes
+                      </span>
+                    </div>
+                    <input
+                      id="mtu-slider"
+                      type="range"
+                      min={20}
+                      max={244}
+                      step={4}
+                      value={watch.mtuSize}
+                      onChange={(e) => onChangeMtuSize(Number(e.target.value))}
+                      className="mt-2 w-full accent-[#2563EB]"
+                    />
+                    <div className="mt-1 flex justify-between font-mono text-[11px] text-[#94A3B8] tabular-nums">
+                      <span>20B (Safe default)</span>
+                      <span>244B (Fast V2)</span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between text-xs">
+                      <label htmlFor="delay-slider" className="font-medium text-[#475569]">
+                        Inter-Chunk Write Delay
+                      </label>
+                      <span className="font-mono font-medium text-[#0F172A] tabular-nums">
+                        {watch.writeDelayMs} ms
+                      </span>
+                    </div>
+                    <input
+                      id="delay-slider"
+                      type="range"
+                      min={20}
+                      max={150}
+                      step={10}
+                      value={watch.writeDelayMs}
+                      onChange={(e) => onChangeWriteDelay(Number(e.target.value))}
+                      className="mt-2 w-full accent-[#2563EB]"
+                    />
+                    <div className="mt-1 flex justify-between font-mono text-[11px] text-[#94A3B8] tabular-nums">
+                      <span>20 ms</span>
+                      <span>150 ms</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <button
+                    type="button"
+                    disabled={isDefaultBleTuning}
+                    onClick={() => {
+                      onChangeMtuSize(20);
+                      onChangeWriteDelay(50);
+                    }}
+                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#CBD5E1] bg-white px-3 text-xs font-medium text-[#0F172A] transition-colors hover:bg-[#F8FAFC] focus-visible:outline-2 focus-visible:outline-[#2563EB] disabled:cursor-not-allowed disabled:opacity-40 whitespace-nowrap"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                    <span>Reset to Defaults</span>
+                  </button>
+                </div>
               </div>
-              <input
-                id="delay-slider"
-                type="range"
-                min={20}
-                max={150}
-                step={10}
-                value={watch.writeDelayMs}
-                onChange={(e) => onChangeWriteDelay(Number(e.target.value))}
-                className="mt-2 w-full accent-[#2563EB]"
-              />
-              <div className="mt-1 flex justify-between font-mono text-[11px] text-[#94A3B8] tabular-nums">
-                <span>20 ms</span>
-                <span>150 ms</span>
-              </div>
-            </div>
+            )}
           </div>
         </div>
       </section>

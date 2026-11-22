@@ -75,29 +75,88 @@ ScrollView {
                     }
                 }
 
-                ColumnLayout {
+                Rectangle {
                     Layout.fillWidth: true
-                    Label { text: qsTr("MTU Chunk Size: %1 bytes").arg(appController.mtuSize); font.pixelSize: 13; color: "#475569" }
-                    Slider {
+                    height: 1
+                    color: "#E2E8F0"
+                }
+
+                // Collapsed Advanced BLE Settings toggle row
+                RowLayout {
+                    id: advancedHeader
+                    property bool expanded: false
+                    Layout.fillWidth: true
+                    spacing: 12
+
+                    ColumnLayout {
                         Layout.fillWidth: true
-                        from: 20
-                        to: 244
-                        stepSize: 4
-                        value: appController.mtuSize
-                        onMoved: appController.mtuSize = Math.round(value)
+                        spacing: 2
+                        Label {
+                            text: qsTr("Advanced BLE Settings")
+                            font.weight: Font.Medium
+                            color: "#0F172A"
+                        }
+                        Label {
+                            text: qsTr("MTU %1 B · Write delay %2 ms").arg(appController.mtuSize).arg(appController.writeDelayMs)
+                            font.pixelSize: 12
+                            color: "#64748B"
+                        }
+                    }
+
+                    Button {
+                        text: advancedHeader.expanded ? qsTr("Hide") : qsTr("Configure")
+                        flat: true
+                        onClicked: advancedHeader.expanded = !advancedHeader.expanded
                     }
                 }
 
                 ColumnLayout {
+                    visible: advancedHeader.expanded
                     Layout.fillWidth: true
-                    Label { text: qsTr("Inter-Chunk Write Delay: %1 ms").arg(appController.writeDelayMs); font.pixelSize: 13; color: "#475569" }
-                    Slider {
+                    spacing: 14
+
+                    Label {
+                        text: qsTr("Safe defaults (20 B, 50 ms) work on all 0xFEEA watches. Increase delay if long notifications drop.")
+                        font.pixelSize: 12
+                        color: "#64748B"
+                        wrapMode: Text.WordWrap
                         Layout.fillWidth: true
-                        from: 20
-                        to: 150
-                        stepSize: 10
-                        value: appController.writeDelayMs
-                        onMoved: appController.writeDelayMs = Math.round(value)
+                    }
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        Label { text: qsTr("MTU Chunk Size: %1 bytes").arg(appController.mtuSize); font.pixelSize: 13; color: "#475569" }
+                        Slider {
+                            Layout.fillWidth: true
+                            from: 20
+                            to: 244
+                            stepSize: 4
+                            value: appController.mtuSize
+                            onMoved: appController.mtuSize = Math.round(value)
+                        }
+                    }
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        Label { text: qsTr("Inter-Chunk Write Delay: %1 ms").arg(appController.writeDelayMs); font.pixelSize: 13; color: "#475569" }
+                        Slider {
+                            Layout.fillWidth: true
+                            from: 20
+                            to: 150
+                            stepSize: 10
+                            value: appController.writeDelayMs
+                            onMoved: appController.writeDelayMs = Math.round(value)
+                        }
+                    }
+
+                    Button {
+                        text: qsTr("Reset to Defaults")
+                        flat: true
+                        enabled: appController.mtuSize !== 20 || appController.writeDelayMs !== 50
+                        onClicked: {
+                            appController.mtuSize = 20
+                            appController.writeDelayMs = 50
+                        }
                     }
                 }
             }
