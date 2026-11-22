@@ -1,0 +1,182 @@
+name: Build FitLink (Debian amd64/arm64 & Android)
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  debian-amd64:
+    name: Debian amd64 (.deb)
+    runs-on: ubuntu-latest
+    container:
+      image: debian:trixie
+    steps:
+      - name: Install base tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates git build-essential cmake ninja-build pkg-config \
+            qt6-base-dev qt6-declarative-dev qt6-connectivity-dev \
+            qml6-module-qtquick qml6-module-qtquick-controls \
+            qml6-module-qtquick-layouts qml6-module-qtquick-templates \
+            qml6-module-qtquick-window
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build Debian amd64 package
+        working-directory: qt
+        run: ./scripts/build-debian.sh amd64
+
+      - name: Upload Debian amd64 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fitlink-debian-amd64
+          path: qt/build-debian-amd64/*.deb
+          if-no-files-found: error
+
+  debian-arm64:
+    name: Debian arm64 (.deb cross-compile)
+    runs-on: ubuntu-latest
+    container:
+      image: debian:trixie
+    steps:
+      - name: Enable arm64 multiarch and install cross-compile toolchain
+        run: |
+          dpkg --add-architecture arm64
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates git cmake ninja-build \
+            crossbuild-essential-arm64 pkg-config-aarch64-linux-gnu \
+            qt6-base-dev-tools qt6-declarative-dev-tools \
+            qt6-base-dev:arm64 qt6-declarative-dev:arm64 qt6-connectivity-dev:arm64
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build Debian arm64 package
+        working-directory: qt
+        run: ./scripts/build-debian.sh arm64
+
+      - name: Upload Debian arm64 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fitlink-debian-arm64
+          path: qt/build-debian-arm64/*.deb
+          if-no-files-found: error
+
+  android:
+    name: Android APK (${{ matrix.abi }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - abi: arm64-v8a
+            qt_arch: android_arm64_v8a
+          - abi: armeabi-v7a
+            qt_arch: android_armv7
+    env:
+      QT_VERSION: '6.8.2'
+      ANDROID_COMPILE_SDK: '34'
+      ANDROID_BUILD_TOOLS: '34.0.0'
+      ANDROID_NDK_VERSION: '26.1.10909125'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Ninja and Android SDK/NDK components
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build
+          yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" \
+            "platforms;android-${ANDROID_COMPILE_SDK}" \
+            "build-tools;${ANDROID_BUILD_TOOLS}" \
+            "ndk;${ANDROID_NDK_VERSION}"
+
+      - name: Install Qt ${{ env.QT_VERSION }} host tools (Linux desktop)
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: linux
+          target: desktop
+          arch: linux_gcc_64
+          dir: ${{ runner.temp }}/qt-host
+          cache: true
+          cache-key-prefix: qt-host-
+
+      - name: Install Qt ${{ env.QT_VERSION }} for Android (${{ matrix.qt_arch }})
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: linux
+          target: android
+          arch: ${{ matrix.qt_arch }}
+          modules: qtconnectivity
+          dir: ${{ runner.temp }}/qt-android
+          cache: true
+          cache-key-prefix: qt-${{ matrix.qt_arch }}-
+
+      - name: Configure and build Android APK (${{ matrix.abi }})
+        env:
+          ANDROID_SDK_ROOT: ${{ env.ANDROID_HOME }}
+          ANDROID_NDK_ROOT: ${{ env.ANDROID_HOME }}/ndk/${{ env.ANDROID_NDK_VERSION }}
+          QT_HOST_DIR: ${{ runner.temp }}/qt-host/${{ env.QT_VERSION }}/gcc_64
+          QT_ANDROID_DIR: ${{ runner.temp }}/qt-android/${{ env.QT_VERSION }}/${{ matrix.qt_arch }}
+        run: |
+          "${QT_ANDROID_DIR}/bin/qt-cmake" \
+            -S qt \
+            -B "qt/build-android-${{ matrix.abi }}" \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DQT_HOST_PATH="${QT_HOST_DIR}" \
+            -DANDROID_SDK_ROOT="${ANDROID_SDK_ROOT}" \
+            -DANDROID_NDK_ROOT="${ANDROID_NDK_ROOT}" \
+            -DANDROID_ABI="${{ matrix.abi }}" \
+            -DQT_ANDROID_BUILD_ALL_ABIS=OFF
+          cmake --build "qt/build-android-${{ matrix.abi }}" --target apk --parallel
+
+      - name: Upload Android APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fitlink-android-${{ matrix.abi }}
+          path: qt/build-android-${{ matrix.abi }}/android-build/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [ debian-amd64, debian-arm64, android ]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist-artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist-artifacts/**/*.deb
+            dist-artifacts/**/*.apk

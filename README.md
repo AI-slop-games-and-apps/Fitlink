@@ -68,3 +68,16 @@ export QT_ANDROID_DIR=~/Qt/6.7.2/android_arm64_v8a
 ```
 
 The APK will be written under `qt/build-android-arm64-v8a/android-build/build/outputs/apk/`.
+
+---
+
+## GitHub Actions CI / Releases
+
+The included GitHub Actions workflow builds and uploads artifacts automatically on every push, pull request, and manual dispatch:
+
+- **Debian `amd64`** (`.deb` built inside `debian:trixie`)
+- **Debian `arm64`** (`.deb` cross-compiled inside `debian:trixie` using `cmake/toolchains/debian-arm64.cmake`)
+- **Android** (`arm64-v8a` and `armeabi-v7a` `.apk` packages built with Qt 6.8.2 + `qtconnectivity`)
+
+Pushing a version tag (e.g. `git tag v1.0.0 && git push origin v1.0.0`) automatically publishes a GitHub Release with all `.deb` and `.apk` files attached.
+
