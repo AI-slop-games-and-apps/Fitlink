@@ -1,0 +1,33 @@
+Source: fitlink
+Section: utils
+Priority: optional
+Maintainer: FitLink Maintainers <maintainers@fitlink.local>
+Build-Depends:
+ debhelper-compat (= 13),
+ cmake (>= 3.21),
+ ninja-build,
+ pkg-config,
+ qt6-base-dev (>= 6.5),
+ qt6-base-dev-tools (>= 6.5),
+ qt6-declarative-dev (>= 6.5),
+ qt6-declarative-dev-tools (>= 6.5),
+ qt6-connectivity-dev (>= 6.5)
+Standards-Version: 4.6.2
+Rules-Requires-Root: no
+
+Package: fitlink
+Architecture: amd64 arm64
+Depends:
+ ${shlibs:Depends},
+ ${misc:Depends},
+ bluez,
+ qml6-module-qtquick,
+ qml6-module-qtquick-controls,
+ qml6-module-qtquick-layouts,
+ qml6-module-qtquick-templates,
+ qml6-module-qtquick-window
+Description: Cross-platform Qt 6 companion for 0xFEEA BLE smartwatches
+ FitLink connects over Bluetooth Low Energy (BLE) to compatible 0xFEEA
+ protocol smartwatches (V1 and V2 framing) to synchronize system time,
+ mirror Linux D-Bus desktop notifications, send custom and scheduled alerts,
+ monitor battery and firmware metadata, and trigger Find Watch alerts.

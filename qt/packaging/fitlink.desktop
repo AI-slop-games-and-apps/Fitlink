@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=FitLink
+GenericName=Smartwatch Companion
+Comment=Sync time, mirror notifications, and manage 0xFEEA BLE smartwatches
+Exec=fitlink
+Icon=fitlink
+Terminal=false
+Categories=Utility;HardwareSettings;Qt;
+Keywords=watch;smartwatch;bluetooth;ble;feea;notifications;
+StartupNotify=true
