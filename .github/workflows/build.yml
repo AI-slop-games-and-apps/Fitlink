@@ -37,7 +37,7 @@ jobs:
 
       - name: Build Debian amd64 package
         working-directory: qt
-        run: ./scripts/build-debian.sh amd64
+        run: bash ./scripts/build-debian.sh amd64
 
       - name: Upload Debian amd64 artifact
         uses: actions/upload-artifact@v4
@@ -68,7 +68,7 @@ jobs:
 
       - name: Build Debian arm64 package
         working-directory: qt
-        run: ./scripts/build-debian.sh arm64
+        run: bash ./scripts/build-debian.sh arm64
 
       - name: Upload Debian arm64 artifact
         uses: actions/upload-artifact@v4
