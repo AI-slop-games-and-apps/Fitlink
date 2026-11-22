@@ -21,6 +21,7 @@ echo "==> Configuring FitLink for Android (arm64-v8a)"
   -S "${ROOT_DIR}" \
   -B "${BUILD_DIR}" \
   -G Ninja \
+  -DCMAKE_MAKE_PROGRAM="$(command -v ninja)" \
   -DCMAKE_BUILD_TYPE=Release \
   -DANDROID_SDK_ROOT="${ANDROID_SDK_ROOT}" \
   -DANDROID_NDK_ROOT="${ANDROID_NDK_ROOT}" \
