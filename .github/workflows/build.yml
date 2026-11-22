@@ -123,10 +123,10 @@ jobs:
           ANDROID_NDK_ROOT: ${{ env.ANDROID_HOME }}/ndk/${{ env.ANDROID_NDK_VERSION }}
         run: |
           chmod +x qt/scripts/build-android.sh
-          QT_HOST_CMAKE="$(find "${{ runner.temp }}/qt-host" -name 'qt-cmake' -type f | head -n 1)"
-          QT_ANDROID_CMAKE="$(find "${{ runner.temp }}/qt-android" -name 'qt-cmake' -type f | head -n 1)"
+          QT_HOST_CMAKE="$(find "${{ runner.temp }}/qt-host" -path "*/gcc_64/bin/qt-cmake" -type f | head -n 1)"
+          QT_ANDROID_CMAKE="$(find "${{ runner.temp }}/qt-android" -path "*/${{ matrix.qt_arch }}/bin/qt-cmake" -type f | head -n 1)"
           if [ -z "${QT_HOST_CMAKE}" ] || [ -z "${QT_ANDROID_CMAKE}" ]; then
-            echo "Could not locate qt-cmake!"
+            echo "Could not locate host or Android qt-cmake!"
             find "${{ runner.temp }}/qt-host" "${{ runner.temp }}/qt-android" -maxdepth 4
             exit 1
           fi
@@ -144,13 +144,15 @@ jobs:
             -DANDROID_NDK_ROOT="${ANDROID_NDK_ROOT}" \
             -DANDROID_ABI="${{ matrix.abi }}" \
             -DQT_ANDROID_BUILD_ALL_ABIS=OFF
+          grep -q "CMAKE_SYSTEM_NAME:.*Android" "qt/build-android-${{ matrix.abi }}/CMakeCache.txt"
           cmake --build "qt/build-android-${{ matrix.abi }}" --target apk --parallel
+          find "qt/build-android-${{ matrix.abi }}" -name "*.apk" -print
 
       - name: Upload Android APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: fitlink-android-${{ matrix.abi }}
-          path: qt/build-android-${{ matrix.abi }}/android-build/build/outputs/apk/**/*.apk
+          path: qt/build-android-${{ matrix.abi }}/**/build/outputs/apk/**/*.apk
           if-no-files-found: error
 
   release:
