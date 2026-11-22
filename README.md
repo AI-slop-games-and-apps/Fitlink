@@ -73,11 +73,12 @@ The APK will be written under `qt/build-android-arm64-v8a/android-build/build/ou
 
 ## GitHub Actions CI / Releases
 
-The included GitHub Actions workflow builds and uploads artifacts automatically on every push, pull request, and manual dispatch:
+The included GitHub Actions workflow builds all four targets in parallel on every push, pull request, and manual dispatch:
 
-- **Debian `amd64`** (`.deb` built natively on `ubuntu-latest` inside `debian:trixie`)
-- **Debian `arm64`** (`.deb` built natively on `ubuntu-24.04-arm` inside `debian:trixie`)
-- **Android** (`arm64-v8a` and `armeabi-v7a` `.apk` packages built with Qt 6.8.2 + `qtconnectivity`)
+- `fitlink-debian-amd64.deb` — Debian `amd64` (built natively on `ubuntu-latest` inside `debian:trixie`)
+- `fitlink-debian-arm64.deb` — Debian `arm64` (built natively on `ubuntu-24.04-arm` inside `debian:trixie`)
+- `fitlink-android-arm64-v8a.apk` — Android 64-bit ARM (Qt 6.8.2 + `qtconnectivity`)
+- `fitlink-android-armeabi-v7a.apk` — Android 32-bit ARM (Qt 6.8.2 + `qtconnectivity`)
 
-Pushing a version tag (e.g. `git tag v1.0.0 && git push origin v1.0.0`) automatically publishes a GitHub Release with all `.deb` and `.apk` files attached.
+Whenever all builds succeed on `main` / `master` (or via **Run workflow**), the workflow automatically publishes/updates the **`latest`** GitHub Release with all four packages attached. Pushing a version tag (e.g. `git tag v1.0.0 && git push origin v1.0.0`) publishes a versioned GitHub Release with auto-generated release notes.
 
