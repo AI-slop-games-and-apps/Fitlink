@@ -37,7 +37,9 @@ jobs:
 
       - name: Build Debian amd64 package
         working-directory: qt
-        run: bash ./scripts/build-debian.sh amd64
+        run: |
+          chmod +x ./scripts/build-debian.sh ./debian/rules
+          ./scripts/build-debian.sh amd64
 
       - name: Upload Debian amd64 artifact
         uses: actions/upload-artifact@v4
@@ -68,7 +70,9 @@ jobs:
 
       - name: Build Debian arm64 package
         working-directory: qt
-        run: bash ./scripts/build-debian.sh arm64
+        run: |
+          chmod +x ./scripts/build-debian.sh ./debian/rules
+          ./scripts/build-debian.sh arm64
 
       - name: Upload Debian arm64 artifact
         uses: actions/upload-artifact@v4
@@ -142,6 +146,7 @@ jobs:
           QT_HOST_DIR: ${{ runner.temp }}/qt-host/${{ env.QT_VERSION }}/gcc_64
           QT_ANDROID_DIR: ${{ runner.temp }}/qt-android/${{ env.QT_VERSION }}/${{ matrix.qt_arch }}
         run: |
+          chmod +x qt/scripts/build-android.sh
           "${QT_ANDROID_DIR}/bin/qt-cmake" \
             -S qt \
             -B "qt/build-android-${{ matrix.abi }}" \
