@@ -1,6 +1,6 @@
 # FitLink — Cross-Platform Qt 6 BLE Watch Companion
 
-**FitLink** is an independent, open-source **Qt 6 (C++17 + QML Material 3 + CMake)** companion application for `0xFEEA` BLE protocol smartwatches (V1 & V2 framing) built from a single codebase for **Debian Linux (`amd64` and `arm64`)** and **Android (API 26+)**, with a clean platform abstraction ready for future Windows support.
+**FitLink** is an independent, open-source **Qt 6 (C++17 + QML Material 3 + CMake)** companion application for `0xFEEA` BLE protocol smartwatches (V1 & V2 framing) built from a single codebase for **Debian Linux (`amd64` and `arm64`)** and **Android (API 28+)**, with a clean platform abstraction ready for future Windows support.
 
 ## Core Capabilities
 
@@ -21,7 +21,7 @@
 ```bash
 sudo apt update
 sudo apt install -y \
-  build-essential cmake ninja-build pkg-config debhelper \
+  build-essential cmake ninja-build pkgconf file fakeroot debhelper \
   qt6-base-dev qt6-declarative-dev qt6-connectivity-dev \
   qml6-module-qtquick qml6-module-qtquick-controls \
   qml6-module-qtquick-layouts qml6-module-qtquick-templates \
@@ -43,7 +43,7 @@ dpkg-buildpackage -b -us -uc
 sudo dpkg --add-architecture arm64
 sudo apt update
 sudo apt install -y \
-  crossbuild-essential-arm64 pkgconf dpkg-dev libgl-dev:arm64 \
+  crossbuild-essential-arm64 pkgconf dpkg-dev file fakeroot binutils-multiarch libgl-dev:arm64 \
   qt6-base-dev:arm64 qt6-declarative-dev:arm64 qt6-connectivity-dev:arm64 \
   qt6-base-dev-tools qt6-declarative-dev-tools
 
@@ -62,7 +62,7 @@ cd qt
 cd qt
 export ANDROID_SDK_ROOT=~/Android/Sdk
 export ANDROID_NDK_ROOT=~/Android/Sdk/ndk/26.1.10909125
-export QT_ANDROID_DIR=~/Qt/6.7.2/android_arm64_v8a
+export QT_ANDROID_DIR=~/Qt/6.8.2/android_arm64_v8a
 
 ./scripts/build-android.sh
 ```
@@ -75,8 +75,8 @@ The APK will be written under `qt/build-android-arm64-v8a/android-build/build/ou
 
 The included GitHub Actions workflow builds and uploads artifacts automatically on every push, pull request, and manual dispatch:
 
-- **Debian `amd64`** (`.deb` built inside `debian:trixie`)
-- **Debian `arm64`** (`.deb` cross-compiled inside `debian:trixie` using `cmake/toolchains/debian-arm64.cmake`)
+- **Debian `amd64`** (`.deb` built natively on `ubuntu-latest` inside `debian:trixie`)
+- **Debian `arm64`** (`.deb` built natively on `ubuntu-24.04-arm` inside `debian:trixie`)
 - **Android** (`arm64-v8a` and `armeabi-v7a` `.apk` packages built with Qt 6.8.2 + `qtconnectivity`)
 
 Pushing a version tag (e.g. `git tag v1.0.0 && git push origin v1.0.0`) automatically publishes a GitHub Release with all `.deb` and `.apk` files attached.

@@ -16,17 +16,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  debian-amd64:
-    name: Debian amd64 (.deb)
-    runs-on: ubuntu-latest
+  debian:
+    name: Debian ${{ matrix.arch }} (.deb)
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     container:
       image: debian:trixie
     steps:
-      - name: Install base tools
+      - name: Install Debian Qt 6 build dependencies
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            ca-certificates git build-essential cmake ninja-build pkgconf \
+            ca-certificates git file fakeroot build-essential cmake ninja-build pkgconf \
             qt6-base-dev qt6-declarative-dev qt6-connectivity-dev \
             qml6-module-qtquick qml6-module-qtquick-controls \
             qml6-module-qtquick-layouts qml6-module-qtquick-templates \
@@ -35,50 +43,17 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Build Debian amd64 package
+      - name: Build Debian ${{ matrix.arch }} package
         working-directory: qt
         run: |
           chmod +x ./scripts/build-debian.sh ./debian/rules
-          ./scripts/build-debian.sh amd64
+          ./scripts/build-debian.sh ${{ matrix.arch }}
 
-      - name: Upload Debian amd64 artifact
+      - name: Upload Debian ${{ matrix.arch }} artifact
         uses: actions/upload-artifact@v4
         with:
-          name: fitlink-debian-amd64
-          path: qt/build-debian-amd64/*.deb
-          if-no-files-found: error
-
-  debian-arm64:
-    name: Debian arm64 (.deb cross-compile)
-    runs-on: ubuntu-latest
-    container:
-      image: debian:trixie
-    steps:
-      - name: Enable arm64 multiarch and install cross-compile toolchain
-        run: |
-          dpkg --add-architecture arm64
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            ca-certificates git cmake ninja-build pkgconf dpkg-dev \
-            crossbuild-essential-arm64 \
-            qt6-base-dev-tools qt6-declarative-dev-tools \
-            libgl-dev:arm64 \
-            qt6-base-dev:arm64 qt6-declarative-dev:arm64 qt6-connectivity-dev:arm64
-
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Build Debian arm64 package
-        working-directory: qt
-        run: |
-          chmod +x ./scripts/build-debian.sh ./debian/rules
-          ./scripts/build-debian.sh arm64
-
-      - name: Upload Debian arm64 artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: fitlink-debian-arm64
-          path: qt/build-debian-arm64/*.deb
+          name: fitlink-debian-${{ matrix.arch }}
+          path: qt/build-debian-${{ matrix.arch }}/*.deb
           if-no-files-found: error
 
   android:
@@ -112,8 +87,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ninja-build
           yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" \
+            "platform-tools" \
             "platforms;android-${ANDROID_COMPILE_SDK}" \
+            "platforms;android-35" \
             "build-tools;${ANDROID_BUILD_TOOLS}" \
+            "build-tools;35.0.0" \
             "ndk;${ANDROID_NDK_VERSION}"
 
       - name: Install Qt ${{ env.QT_VERSION }} host tools (Linux desktop)
@@ -131,7 +109,7 @@ jobs:
         uses: jurplel/install-qt-action@v4
         with:
           version: ${{ env.QT_VERSION }}
-          host: linux
+          host: all_os
           target: android
           arch: ${{ matrix.qt_arch }}
           modules: qtconnectivity
@@ -169,7 +147,7 @@ jobs:
   release:
     name: Publish GitHub Release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [ debian-amd64, debian-arm64, android ]
+    needs: [ debian, android ]
     runs-on: ubuntu-latest
     permissions:
       contents: write
