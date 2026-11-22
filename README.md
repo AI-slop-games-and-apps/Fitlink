@@ -43,7 +43,7 @@ dpkg-buildpackage -b -us -uc
 sudo dpkg --add-architecture arm64
 sudo apt update
 sudo apt install -y \
-  crossbuild-essential-arm64 pkg-config-aarch64-linux-gnu \
+  crossbuild-essential-arm64 pkgconf dpkg-dev libgl-dev:arm64 \
   qt6-base-dev:arm64 qt6-declarative-dev:arm64 qt6-connectivity-dev:arm64 \
   qt6-base-dev-tools qt6-declarative-dev-tools
 

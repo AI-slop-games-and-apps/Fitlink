@@ -26,7 +26,7 @@ jobs:
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            ca-certificates git build-essential cmake ninja-build pkg-config \
+            ca-certificates git build-essential cmake ninja-build pkgconf \
             qt6-base-dev qt6-declarative-dev qt6-connectivity-dev \
             qml6-module-qtquick qml6-module-qtquick-controls \
             qml6-module-qtquick-layouts qml6-module-qtquick-templates \
@@ -57,9 +57,10 @@ jobs:
           dpkg --add-architecture arm64
           apt-get update
           apt-get install -y --no-install-recommends \
-            ca-certificates git cmake ninja-build \
-            crossbuild-essential-arm64 pkg-config-aarch64-linux-gnu \
+            ca-certificates git cmake ninja-build pkgconf dpkg-dev \
+            crossbuild-essential-arm64 \
             qt6-base-dev-tools qt6-declarative-dev-tools \
+            libgl-dev:arm64 \
             qt6-base-dev:arm64 qt6-declarative-dev:arm64 qt6-connectivity-dev:arm64
 
       - name: Checkout repository
