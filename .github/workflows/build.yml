@@ -41,7 +41,7 @@ jobs:
             qml6-module-qtquick-window
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Build Debian ${{ matrix.arch }} package
         working-directory: qt
@@ -74,10 +74,10 @@ jobs:
       ANDROID_NDK_VERSION: '26.1.10909125'
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -121,11 +121,20 @@ jobs:
         env:
           ANDROID_SDK_ROOT: ${{ env.ANDROID_HOME }}
           ANDROID_NDK_ROOT: ${{ env.ANDROID_HOME }}/ndk/${{ env.ANDROID_NDK_VERSION }}
-          QT_HOST_DIR: ${{ runner.temp }}/qt-host/${{ env.QT_VERSION }}/gcc_64
-          QT_ANDROID_DIR: ${{ runner.temp }}/qt-android/${{ env.QT_VERSION }}/${{ matrix.qt_arch }}
         run: |
           chmod +x qt/scripts/build-android.sh
-          "${QT_ANDROID_DIR}/bin/qt-cmake" \
+          QT_HOST_CMAKE="$(find "${{ runner.temp }}/qt-host" -name 'qt-cmake' -type f | head -n 1)"
+          QT_ANDROID_CMAKE="$(find "${{ runner.temp }}/qt-android" -name 'qt-cmake' -type f | head -n 1)"
+          if [ -z "${QT_HOST_CMAKE}" ] || [ -z "${QT_ANDROID_CMAKE}" ]; then
+            echo "Could not locate qt-cmake!"
+            find "${{ runner.temp }}/qt-host" "${{ runner.temp }}/qt-android" -maxdepth 4
+            exit 1
+          fi
+          QT_HOST_DIR="$(dirname "$(dirname "${QT_HOST_CMAKE}")")"
+          chmod +x "${QT_ANDROID_CMAKE}"
+          echo "Using QT_HOST_DIR=${QT_HOST_DIR}"
+          echo "Using QT_ANDROID_CMAKE=${QT_ANDROID_CMAKE}"
+          "${QT_ANDROID_CMAKE}" \
             -S qt \
             -B "qt/build-android-${{ matrix.abi }}" \
             -G Ninja \
