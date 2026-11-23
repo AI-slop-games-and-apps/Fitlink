@@ -31,6 +31,7 @@
     <application
         android:name="org.qtproject.qt.android.bindings.QtApplication"
         android:hardwareAccelerated="true"
+        android:extractNativeLibs="true"
         android:label="FitLink"
         android:allowBackup="true"
         android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar">
