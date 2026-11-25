@@ -9,10 +9,10 @@ import { TimeSyncView } from './components/TimeSyncView';
 import {
   bytesToHex,
   encodeFindWatch,
+  encodeMeasureHeartRate,
+  encodeMeasureSpo2,
   encodeNotification,
   encodeSyncActivity,
-  encodeSyncHeartRate,
-  encodeSyncSpo2,
   encodeSyncTime,
   encodeTimeFormat,
   formatProtocolLabel,
@@ -93,7 +93,7 @@ function loadPersisted(): PersistedConfig {
       const rawAct = parsed.activityState;
       return {
         use24Hour: parsed.use24Hour ?? true,
-        autoSyncOnConnect: parsed.autoSyncOnConnect ?? true,
+        autoSyncOnConnect: parsed.autoSyncOnConnect ?? false,
         protocolPreference: parsed.protocolPreference ?? 'auto',
         mtuSize: parsed.mtuSize ?? 20,
         writeDelayMs: parsed.writeDelayMs ?? 50,
@@ -131,7 +131,7 @@ function loadPersisted(): PersistedConfig {
   }
   return {
     use24Hour: true,
-    autoSyncOnConnect: true,
+    autoSyncOnConnect: false,
     protocolPreference: 'auto',
     mtuSize: 20,
     writeDelayMs: 50,
@@ -274,6 +274,10 @@ export default function App() {
   const [packetLog, setPacketLog] = useState<PacketLogEntry[]>([]);
   const [activityState, setActivityState] = useState<ActivityState>(initial.activityState);
   const [isSyncingActivity, setIsSyncingActivity] = useState(false);
+  const [isMeasuringHeartRate, setIsMeasuringHeartRate] = useState(false);
+  const [isMeasuringSpo2, setIsMeasuringSpo2] = useState(false);
+  const hrTimerRef = useRef<number | null>(null);
+  const spo2TimerRef = useRef<number | null>(null);
 
   const [isVibrating, setIsVibrating] = useState(false);
   const [activeWatchBanner, setActiveWatchBanner] = useState<WatchAlertBanner | null>(null);
@@ -341,6 +345,16 @@ export default function App() {
   useEffect(() => {
     const session = sessionRef.current!;
     session.onDisconnected = () => {
+      if (hrTimerRef.current !== null) {
+        window.clearTimeout(hrTimerRef.current);
+        hrTimerRef.current = null;
+      }
+      if (spo2TimerRef.current !== null) {
+        window.clearTimeout(spo2TimerRef.current);
+        spo2TimerRef.current = null;
+      }
+      setIsMeasuringHeartRate(false);
+      setIsMeasuringSpo2(false);
       setWatch((prev) => ({
         ...prev,
         isConnected: false,
@@ -381,6 +395,11 @@ export default function App() {
       }));
     };
     session.onHeartRateReceived = (bpm) => {
+      if (hrTimerRef.current !== null) {
+        window.clearTimeout(hrTimerRef.current);
+        hrTimerRef.current = null;
+      }
+      setIsMeasuringHeartRate(false);
       const stamped = formatShortTime();
       setActivityState((prev) => ({
         ...prev,
@@ -391,6 +410,11 @@ export default function App() {
       }));
     };
     session.onSpo2Received = (spo2) => {
+      if (spo2TimerRef.current !== null) {
+        window.clearTimeout(spo2TimerRef.current);
+        spo2TimerRef.current = null;
+      }
+      setIsMeasuringSpo2(false);
       const stamped = formatShortTime();
       setActivityState((prev) => ({
         ...prev,
@@ -489,6 +513,7 @@ export default function App() {
         resolveProtocolVersion(watch.detectedProtocol, watch.protocolPreference);
       setIsSyncingActivity(true);
       try {
+        await sessionRef.current!.readActivity();
         // Sync today (offset 0) plus earlier days of the current Mon–Sun week
         const today = new Date();
         const daysSinceMonday = (today.getDay() + 6) % 7;
@@ -502,15 +527,13 @@ export default function App() {
             return;
           }
         }
-        await transmitPacket('Sync Heart Rate (0x6B)', encodeSyncHeartRate(resolved), resolved);
-        await transmitPacket('Sync SpO2 (0x70)', encodeSyncSpo2(resolved), resolved);
 
         setActivityState((prev) => ({
           ...prev,
           lastActivitySyncedAt: formatShortTime(),
         }));
         if (!silent) {
-          showToast('Activity & vitals refreshed from watch');
+          showToast('Activity refreshed from watch');
         }
       } finally {
         setIsSyncingActivity(false);
@@ -518,6 +541,58 @@ export default function App() {
     },
     [showToast, transmitPacket, watch.detectedProtocol, watch.protocolPreference]
   );
+
+  const handleMeasureHeartRate = useCallback(async () => {
+    if (!watch.isConnected) {
+      showToast('Connect a watch before measuring heart rate', true);
+      return;
+    }
+    const resolved = resolveProtocolVersion(watch.detectedProtocol, watch.protocolPreference);
+    setIsMeasuringHeartRate(true);
+    if (hrTimerRef.current !== null) {
+      window.clearTimeout(hrTimerRef.current);
+    }
+    hrTimerRef.current = window.setTimeout(() => {
+      setIsMeasuringHeartRate(false);
+      hrTimerRef.current = null;
+    }, 30_000);
+    const ok = await transmitPacket('Measure Heart Rate (0x6F)', encodeMeasureHeartRate(resolved), resolved);
+    if (ok) {
+      showToast('Heart rate reading started on watch');
+    } else {
+      if (hrTimerRef.current !== null) {
+        window.clearTimeout(hrTimerRef.current);
+        hrTimerRef.current = null;
+      }
+      setIsMeasuringHeartRate(false);
+    }
+  }, [showToast, transmitPacket, watch.detectedProtocol, watch.isConnected, watch.protocolPreference]);
+
+  const handleMeasureSpo2 = useCallback(async () => {
+    if (!watch.isConnected) {
+      showToast('Connect a watch before measuring SpO2', true);
+      return;
+    }
+    const resolved = resolveProtocolVersion(watch.detectedProtocol, watch.protocolPreference);
+    setIsMeasuringSpo2(true);
+    if (spo2TimerRef.current !== null) {
+      window.clearTimeout(spo2TimerRef.current);
+    }
+    spo2TimerRef.current = window.setTimeout(() => {
+      setIsMeasuringSpo2(false);
+      spo2TimerRef.current = null;
+    }, 30_000);
+    const ok = await transmitPacket('Measure SpO2 (0x6B)', encodeMeasureSpo2(resolved), resolved);
+    if (ok) {
+      showToast('SpO2 reading started on watch');
+    } else {
+      if (spo2TimerRef.current !== null) {
+        window.clearTimeout(spo2TimerRef.current);
+        spo2TimerRef.current = null;
+      }
+      setIsMeasuringSpo2(false);
+    }
+  }, [showToast, transmitPacket, watch.detectedProtocol, watch.isConnected, watch.protocolPreference]);
 
   const finalizeConnection = useCallback(
     async (result: Awaited<ReturnType<WebBleWatchSession['connectVirtual']>>) => {
@@ -542,26 +617,8 @@ export default function App() {
       });
       setConnectDialogOpen(false);
       showToast(`Connected to ${result.deviceName}`);
-
-      if (autoSyncOnConnect) {
-        window.setTimeout(() => {
-          void handleSyncTime(undefined, undefined, resolved);
-        }, 350);
-      }
-
-      // Automatically sync daily activity, weekly distance, heart rate, and SpO2 on connect
-      window.setTimeout(() => {
-        void handleRefreshActivity(resolved, true);
-      }, autoSyncOnConnect ? 950 : 350);
     },
-    [
-      appendLog,
-      autoSyncOnConnect,
-      handleRefreshActivity,
-      handleSyncTime,
-      showToast,
-      watch.protocolPreference,
-    ]
+    [appendLog, showToast, watch.protocolPreference]
   );
 
   const handlePairWebBluetooth = async () => {
@@ -837,11 +894,15 @@ export default function App() {
             <ActivityView
               isConnected={watch.isConnected}
               isSyncing={isSyncingActivity}
+              isMeasuringHeartRate={isMeasuringHeartRate}
+              isMeasuringSpo2={isMeasuringSpo2}
               activity={activityState}
               weeklyDays={weeklyDays}
               todaySteps={todaySteps}
               todayDistanceMeters={todayDistanceMeters}
               onRefresh={() => void handleRefreshActivity()}
+              onMeasureHeartRate={() => void handleMeasureHeartRate()}
+              onMeasureSpo2={() => void handleMeasureSpo2()}
               onChangeUnit={(distanceUnit) =>
                 setActivityState((prev) => ({ ...prev, distanceUnit }))
               }

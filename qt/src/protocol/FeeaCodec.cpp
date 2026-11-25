@@ -238,16 +238,18 @@ QByteArray FeeaCodec::encodeSyncActivity(ProtocolVersion version, uint8_t dayOff
     return framePacket(version, CmdSyncActivity, payload);
 }
 
-QByteArray FeeaCodec::encodeSyncHeartRate(ProtocolVersion version) {
+QByteArray FeeaCodec::encodeMeasureHeartRate(ProtocolVersion version) {
+    // Verified 0xFEEA single Heart Rate trigger: FE EA 10/20 06 6F 00
     QByteArray payload;
-    payload.append(static_cast<char>(0x01));
-    return framePacket(version, CmdSyncHeartRate, payload);
+    payload.append(static_cast<char>(0x00));
+    return framePacket(version, CmdMeasureHeartRate, payload);
 }
 
-QByteArray FeeaCodec::encodeSyncSpo2(ProtocolVersion version) {
+QByteArray FeeaCodec::encodeMeasureSpo2(ProtocolVersion version) {
+    // Verified 0xFEEA Blood Oxygen (SpO2) trigger: FE EA 10/20 06 6B 00
     QByteArray payload;
-    payload.append(static_cast<char>(0x01));
-    return framePacket(version, CmdSyncSpo2, payload);
+    payload.append(static_cast<char>(0x00));
+    return framePacket(version, CmdMeasureSpo2, payload);
 }
 
 ParsedHealthPacket FeeaCodec::parseFee1Activity(const QByteArray &value) {
@@ -338,7 +340,7 @@ ParsedHealthPacket FeeaCodec::parseFeeaHealthResponse(const QByteArray &frame) {
         }
     }
 
-    if ((cmd == CmdSyncHeartRate || cmd == 0x6A || cmd == 0x69 || cmd == 0x6D || cmd == 0x0A)
+    if ((cmd == CmdMeasureHeartRate || cmd == CmdMeasureDynamicHr || cmd == 0x6A || cmd == 0x69 || cmd == 0x0A)
         && !payload.isEmpty()) {
         for (int i = payload.size() - 1; i >= 0; --i) {
             const int candidate = static_cast<uint8_t>(payload.at(i));
@@ -351,7 +353,7 @@ ParsedHealthPacket FeeaCodec::parseFeeaHealthResponse(const QByteArray &frame) {
         }
     }
 
-    if ((cmd == CmdSyncSpo2 || cmd == 0x72 || cmd == 0x73 || cmd == 0x80 || cmd == 0x82 || cmd == 0x0B)
+    if ((cmd == CmdMeasureSpo2 || cmd == 0x6C || cmd == 0x72 || cmd == 0x73 || cmd == 0x80 || cmd == 0x82 || cmd == 0x0B)
         && !payload.isEmpty()) {
         for (int i = payload.size() - 1; i >= 0; --i) {
             const int candidate = static_cast<uint8_t>(payload.at(i));

@@ -98,8 +98,9 @@ public:
     static constexpr uint8_t CmdSyncActivityHist = 0x52;
     static constexpr uint8_t CmdFindWatch        = 0x61;
     static constexpr uint8_t CmdPushNotification = 0x64;
-    static constexpr uint8_t CmdSyncHeartRate    = 0x6B;
-    static constexpr uint8_t CmdSyncSpo2         = 0x70;
+    static constexpr uint8_t CmdMeasureSpo2      = 0x6B;
+    static constexpr uint8_t CmdMeasureDynamicHr = 0x6D;
+    static constexpr uint8_t CmdMeasureHeartRate = 0x6F;
 
     static ProtocolVersion detectFromManufacturer(const QString &manufacturerName);
     static ProtocolVersion detectFromIncomingFrame(const QByteArray &frame);
@@ -117,8 +118,8 @@ public:
                                          int maxUtf8Bytes = 128);
     static QByteArray encodeFindWatch(ProtocolVersion version);
     static QByteArray encodeSyncActivity(ProtocolVersion version, uint8_t dayOffset = 0);
-    static QByteArray encodeSyncHeartRate(ProtocolVersion version);
-    static QByteArray encodeSyncSpo2(ProtocolVersion version);
+    static QByteArray encodeMeasureHeartRate(ProtocolVersion version);
+    static QByteArray encodeMeasureSpo2(ProtocolVersion version);
 
     static ParsedHealthPacket parseFeeaHealthResponse(const QByteArray &frame);
     static ParsedHealthPacket parseFee1Activity(const QByteArray &value);

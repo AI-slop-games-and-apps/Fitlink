@@ -62,6 +62,8 @@ class AppController : public QObject {
     Q_PROPERTY(QVariantList spo2Samples READ spo2Samples NOTIFY activityChanged)
     Q_PROPERTY(QString lastActivitySyncText READ lastActivitySyncText NOTIFY activityChanged)
     Q_PROPERTY(bool isSyncingActivity READ isSyncingActivity NOTIFY activityChanged)
+    Q_PROPERTY(bool isMeasuringHeartRate READ isMeasuringHeartRate NOTIFY activityChanged)
+    Q_PROPERTY(bool isMeasuringSpo2 READ isMeasuringSpo2 NOTIFY activityChanged)
 
 public:
     explicit AppController(QObject *parent = nullptr);
@@ -122,6 +124,8 @@ public:
     QVariantList spo2Samples() const { return m_spo2Samples; }
     QString lastActivitySyncText() const;
     bool isSyncingActivity() const { return m_isSyncingActivity; }
+    bool isMeasuringHeartRate() const { return m_isMeasuringHeartRate; }
+    bool isMeasuringSpo2() const { return m_isMeasuringSpo2; }
 
     // BLE & Device actions
     Q_INVOKABLE void recheckBluetoothAvailability();
@@ -163,6 +167,8 @@ public:
 
     // Activity & Vitals actions
     Q_INVOKABLE void refreshActivity();
+    Q_INVOKABLE void measureHeartRate();
+    Q_INVOKABLE void measureSpo2();
     Q_INVOKABLE QString formatDistance(int meters) const;
     Q_INVOKABLE QString formatDistanceWithUnit(int meters) const;
 
@@ -212,9 +218,11 @@ private:
     BleWatchManager *m_ble = nullptr;
     PlatformNotificationBridge *m_osBridge = nullptr;
     QTimer m_schedulerTimer;
+    QTimer m_hrMeasureTimer;
+    QTimer m_spo2MeasureTimer;
 
     bool m_use24Hour = true;
-    bool m_autoSyncOnConnect = true;
+    bool m_autoSyncOnConnect = false;
     QDateTime m_lastSyncedAt;
 
     QString m_distanceUnit = QStringLiteral("km");
@@ -228,6 +236,8 @@ private:
     QVariantList m_spo2Samples;
     QDateTime m_lastActivitySyncedAt;
     bool m_isSyncingActivity = false;
+    bool m_isMeasuringHeartRate = false;
+    bool m_isMeasuringSpo2 = false;
 
     QVariantList m_appFilters;
     QVariantList m_templates;

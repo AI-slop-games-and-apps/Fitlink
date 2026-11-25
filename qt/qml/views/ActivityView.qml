@@ -625,17 +625,30 @@ ScrollView {
 
                     RowLayout {
                         Layout.fillWidth: true
-                        Label {
-                            text: qsTr("Heart Rate")
-                            font.pixelSize: 15
-                            font.weight: Font.Bold
-                            color: "#0F172A"
+                        spacing: 8
+                        ColumnLayout {
                             Layout.fillWidth: true
+                            spacing: 1
+                            Label {
+                                text: qsTr("Heart Rate")
+                                font.pixelSize: 15
+                                font.weight: Font.Bold
+                                color: "#0F172A"
+                            }
+                            Label {
+                                text: appController.heartRateUpdatedAt
+                                font.pixelSize: 11
+                                color: "#64748B"
+                            }
                         }
-                        Label {
-                            text: appController.heartRateUpdatedAt
+                        Button {
+                            text: appController.isMeasuringHeartRate ? qsTr("Measuring...") : qsTr("Measure")
+                            highlighted: true
+                            Material.accent: "#DC2626"
+                            implicitHeight: 32
                             font.pixelSize: 12
-                            color: "#64748B"
+                            enabled: appController.isConnected && !appController.isMeasuringHeartRate
+                            onClicked: appController.measureHeartRate()
                         }
                     }
 
@@ -728,17 +741,30 @@ ScrollView {
 
                     RowLayout {
                         Layout.fillWidth: true
-                        Label {
-                            text: qsTr("SpO2")
-                            font.pixelSize: 15
-                            font.weight: Font.Bold
-                            color: "#0F172A"
+                        spacing: 8
+                        ColumnLayout {
                             Layout.fillWidth: true
+                            spacing: 1
+                            Label {
+                                text: qsTr("SpO2")
+                                font.pixelSize: 15
+                                font.weight: Font.Bold
+                                color: "#0F172A"
+                            }
+                            Label {
+                                text: appController.spo2UpdatedAt
+                                font.pixelSize: 11
+                                color: "#64748B"
+                            }
                         }
-                        Label {
-                            text: appController.spo2UpdatedAt
+                        Button {
+                            text: appController.isMeasuringSpo2 ? qsTr("Measuring...") : qsTr("Measure")
+                            highlighted: true
+                            Material.accent: "#0284C7"
+                            implicitHeight: 32
                             font.pixelSize: 12
-                            color: "#64748B"
+                            enabled: appController.isConnected && !appController.isMeasuringSpo2
+                            onClicked: appController.measureSpo2()
                         }
                     }
 

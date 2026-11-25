@@ -58,6 +58,24 @@ AppController::AppController(QObject *parent)
     m_schedulerTimer.setInterval(1000);
     connect(&m_schedulerTimer, &QTimer::timeout, this, &AppController::onSchedulerTick);
     m_schedulerTimer.start();
+
+    m_hrMeasureTimer.setSingleShot(true);
+    m_hrMeasureTimer.setInterval(30000);
+    connect(&m_hrMeasureTimer, &QTimer::timeout, this, [this]() {
+        if (m_isMeasuringHeartRate) {
+            m_isMeasuringHeartRate = false;
+            emit activityChanged();
+        }
+    });
+
+    m_spo2MeasureTimer.setSingleShot(true);
+    m_spo2MeasureTimer.setInterval(30000);
+    connect(&m_spo2MeasureTimer, &QTimer::timeout, this, [this]() {
+        if (m_isMeasuringSpo2) {
+            m_isMeasuringSpo2 = false;
+            emit activityChanged();
+        }
+    });
 }
 
 int AppController::connectionState() const {
@@ -481,19 +499,53 @@ void AppController::refreshActivity() {
     });
 }
 
+void AppController::measureHeartRate() {
+    if (!isConnected()) {
+        emit toastMessage(tr("Connect a watch before measuring heart rate"), true);
+        return;
+    }
+    if (m_ble->requestHeartRateReading()) {
+        m_isMeasuringHeartRate = true;
+        m_hrMeasureTimer.start();
+        emit activityChanged();
+        emit toastMessage(tr("Heart rate reading started on watch"), false);
+    }
+}
+
+void AppController::measureSpo2() {
+    if (!isConnected()) {
+        emit toastMessage(tr("Connect a watch before measuring SpO2"), true);
+        return;
+    }
+    if (m_ble->requestSpo2Reading()) {
+        m_isMeasuringSpo2 = true;
+        m_spo2MeasureTimer.start();
+        emit activityChanged();
+        emit toastMessage(tr("SpO2 reading started on watch"), false);
+    }
+}
+
 void AppController::onBleStateChanged(BleWatchManager::ConnectionState state) {
     emit connectionStateChanged();
-    if (state == BleWatchManager::ConnectionState::Connected) {
-        if (m_autoSyncOnConnect) {
-            QTimer::singleShot(600, this, &AppController::syncTimeNow);
+    if (state != BleWatchManager::ConnectionState::Connected) {
+        bool changed = false;
+        if (m_isMeasuringHeartRate) {
+            m_hrMeasureTimer.stop();
+            m_isMeasuringHeartRate = false;
+            changed = true;
         }
-        QTimer::singleShot(1150, this, [this]() {
-            if (isConnected()) {
-                m_ble->requestHealthSync();
-                m_lastActivitySyncedAt = QDateTime::currentDateTime();
-                emit activityChanged();
-            }
-        });
+        if (m_isMeasuringSpo2) {
+            m_spo2MeasureTimer.stop();
+            m_isMeasuringSpo2 = false;
+            changed = true;
+        }
+        if (m_isSyncingActivity) {
+            m_isSyncingActivity = false;
+            changed = true;
+        }
+        if (changed) {
+            emit activityChanged();
+        }
     }
 }
 
@@ -513,6 +565,8 @@ void AppController::onHeartRateReceived(int bpm) {
     if (bpm < 30 || bpm > 220) {
         return;
     }
+    m_hrMeasureTimer.stop();
+    m_isMeasuringHeartRate = false;
     m_latestHeartRate = bpm;
     m_heartRateUpdatedAt = QDateTime::currentDateTime();
     m_heartRateSamples.append(bpm);
@@ -528,6 +582,8 @@ void AppController::onSpo2Received(int percent) {
     if (percent < 70 || percent > 100) {
         return;
     }
+    m_spo2MeasureTimer.stop();
+    m_isMeasuringSpo2 = false;
     m_latestSpo2 = percent;
     m_spo2UpdatedAt = QDateTime::currentDateTime();
     m_spo2Samples.append(percent);
@@ -685,7 +741,7 @@ void AppController::seedDefaultFiltersAndTemplates() {
 void AppController::loadPersistedState() {
     QSettings settings;
     m_use24Hour = settings.value(QStringLiteral("time/use24Hour"), true).toBool();
-    m_autoSyncOnConnect = settings.value(QStringLiteral("time/autoSyncOnConnect"), true).toBool();
+    m_autoSyncOnConnect = settings.value(QStringLiteral("time/autoSyncOnConnect"), false).toBool();
     m_distanceUnit = settings.value(QStringLiteral("activity/distanceUnit"), QStringLiteral("km")).toString();
     if (m_distanceUnit != QStringLiteral("mi")) {
         m_distanceUnit = QStringLiteral("km");

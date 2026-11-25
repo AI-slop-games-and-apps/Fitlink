@@ -49,8 +49,9 @@ export const FEEA_CMD = {
   SYNC_ACTIVITY_HIST: 0x52,
   FIND_WATCH: 0x61,
   PUSH_NOTIFICATION: 0x64,
-  SYNC_HEART_RATE: 0x6b,
-  SYNC_SPO2: 0x70,
+  MEASURE_SPO2: 0x6b,
+  MEASURE_DYNAMIC_HR: 0x6d,
+  MEASURE_HEART_RATE: 0x6f,
 } as const;
 
 export interface ParsedHealthPacket {
@@ -208,12 +209,14 @@ export function encodeSyncActivity(version: 'v1' | 'v2', dayOffset = 0): Uint8Ar
   return framePacket(version, FEEA_CMD.SYNC_ACTIVITY, new Uint8Array([safeOffset & 0xff]));
 }
 
-export function encodeSyncHeartRate(version: 'v1' | 'v2'): Uint8Array {
-  return framePacket(version, FEEA_CMD.SYNC_HEART_RATE, new Uint8Array([0x01]));
+export function encodeMeasureHeartRate(version: 'v1' | 'v2'): Uint8Array {
+  // Verified 0xFEEA single Heart Rate trigger: FE EA 10/20 06 6F 00
+  return framePacket(version, FEEA_CMD.MEASURE_HEART_RATE, new Uint8Array([0x00]));
 }
 
-export function encodeSyncSpo2(version: 'v1' | 'v2'): Uint8Array {
-  return framePacket(version, FEEA_CMD.SYNC_SPO2, new Uint8Array([0x01]));
+export function encodeMeasureSpo2(version: 'v1' | 'v2'): Uint8Array {
+  // Verified 0xFEEA Blood Oxygen (SpO2) trigger: FE EA 10/20 06 6B 00
+  return framePacket(version, FEEA_CMD.MEASURE_SPO2, new Uint8Array([0x00]));
 }
 
 function readUint24BE(buf: Uint8Array, offset: number): number {
@@ -329,7 +332,14 @@ export function parseFeeaHealthResponse(frame: Uint8Array): ParsedHealthPacket {
     }
   }
 
-  if ((cmd === FEEA_CMD.SYNC_HEART_RATE || cmd === 0x6a || cmd === 0x69 || cmd === 0x6d || cmd === 0x0a) && payload.length >= 1) {
+  if (
+    (cmd === FEEA_CMD.MEASURE_HEART_RATE ||
+      cmd === FEEA_CMD.MEASURE_DYNAMIC_HR ||
+      cmd === 0x6a ||
+      cmd === 0x69 ||
+      cmd === 0x0a) &&
+    payload.length >= 1
+  ) {
     for (let i = payload.length - 1; i >= 0; i -= 1) {
       const bpm = payload[i];
       if (bpm >= 30 && bpm <= 220) {
@@ -342,7 +352,16 @@ export function parseFeeaHealthResponse(frame: Uint8Array): ParsedHealthPacket {
     }
   }
 
-  if ((cmd === FEEA_CMD.SYNC_SPO2 || cmd === 0x72 || cmd === 0x73 || cmd === 0x80 || cmd === 0x82 || cmd === 0x0b) && payload.length >= 1) {
+  if (
+    (cmd === FEEA_CMD.MEASURE_SPO2 ||
+      cmd === 0x6c ||
+      cmd === 0x72 ||
+      cmd === 0x73 ||
+      cmd === 0x80 ||
+      cmd === 0x82 ||
+      cmd === 0x0b) &&
+    payload.length >= 1
+  ) {
     for (let i = payload.length - 1; i >= 0; i -= 1) {
       const spo2 = payload[i];
       if (spo2 >= 70 && spo2 <= 100) {

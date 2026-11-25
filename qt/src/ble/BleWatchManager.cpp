@@ -1059,14 +1059,30 @@ bool BleWatchManager::requestHealthSync() {
         enqueueReadChar(m_batteryService, m_batteryChar, tr("Read Battery"));
     }
 
-    // 2. Query daily activity (today + recent days), heart rate, and SpO2 over 0xFEE2
+    // 2. Query daily activity (today + recent days) over 0xFEE2
     const auto version = FeeaCodec::resolveVersion(m_detectedProtocol, m_protocolPref);
     const bool okSteps = enqueuePacket(FeeaCodec::encodeSyncActivity(version, 0), tr("Sync Activity Today (0x51)"));
     enqueuePacket(FeeaCodec::encodeSyncActivity(version, 1), tr("Sync Activity Yesterday (0x51)"));
     enqueuePacket(FeeaCodec::encodeSyncActivity(version, 2), tr("Sync Activity -2d (0x51)"));
-    enqueuePacket(FeeaCodec::encodeSyncHeartRate(version), tr("Sync Heart Rate (0x6B)"));
-    enqueuePacket(FeeaCodec::encodeSyncSpo2(version), tr("Sync SpO2 (0x70)"));
     return okSteps;
+}
+
+bool BleWatchManager::requestHeartRateReading() {
+    if (m_state != ConnectionState::Connected || !m_feeaService || !m_dataOutChar.isValid()) {
+        emit errorOccurred(tr("Connect a watch before measuring heart rate."));
+        return false;
+    }
+    const auto version = FeeaCodec::resolveVersion(m_detectedProtocol, m_protocolPref);
+    return enqueuePacket(FeeaCodec::encodeMeasureHeartRate(version), tr("Measure Heart Rate (0x6F)"));
+}
+
+bool BleWatchManager::requestSpo2Reading() {
+    if (m_state != ConnectionState::Connected || !m_feeaService || !m_dataOutChar.isValid()) {
+        emit errorOccurred(tr("Connect a watch before measuring SpO2."));
+        return false;
+    }
+    const auto version = FeeaCodec::resolveVersion(m_detectedProtocol, m_protocolPref);
+    return enqueuePacket(FeeaCodec::encodeMeasureSpo2(version), tr("Measure SpO2 (0x6B)"));
 }
 
 } // namespace fitlink

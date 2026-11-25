@@ -370,19 +370,22 @@ export class WebBleWatchSession {
         return { chunks: chunks.length, ackHex: bytesToHex(responseFrame) };
       }
 
-      if (cmd === FEEA_CMD.SYNC_HEART_RATE) {
+      if (cmd === FEEA_CMD.MEASURE_HEART_RATE) {
+        await new Promise((resolve) => setTimeout(resolve, 750));
         this.virtualSyncCount += 1;
         const hrSeries = [72, 74, 69, 76, 71, 68, 75, 73];
         const bpm = hrSeries[this.virtualSyncCount % hrSeries.length];
-        const responseFrame = framePacket(version, FEEA_CMD.SYNC_HEART_RATE, new Uint8Array([bpm]));
+        const responseFrame = framePacket(version, FEEA_CMD.MEASURE_HEART_RATE, new Uint8Array([bpm]));
         this.dispatchParsedHealth(parseFeeaHealthResponse(responseFrame));
         return { chunks: chunks.length, ackHex: bytesToHex(responseFrame) };
       }
 
-      if (cmd === FEEA_CMD.SYNC_SPO2) {
+      if (cmd === FEEA_CMD.MEASURE_SPO2) {
+        await new Promise((resolve) => setTimeout(resolve, 750));
+        this.virtualSyncCount += 1;
         const spo2Series = [98, 99, 97, 98, 99, 98, 97, 98];
         const spo2 = spo2Series[this.virtualSyncCount % spo2Series.length];
-        const responseFrame = framePacket(version, FEEA_CMD.SYNC_SPO2, new Uint8Array([spo2]));
+        const responseFrame = framePacket(version, FEEA_CMD.MEASURE_SPO2, new Uint8Array([spo2]));
         this.dispatchParsedHealth(parseFeeaHealthResponse(responseFrame));
         return { chunks: chunks.length, ackHex: bytesToHex(responseFrame) };
       }
@@ -427,6 +430,18 @@ export class WebBleWatchSession {
     if (!this.batteryChar) return null;
     const dv = await this.batteryChar.readValue();
     return dv.getUint8(0);
+  }
+
+  async readActivity(): Promise<void> {
+    if (this.virtual || !this.activityChar || !this.activityChar.properties.read) return;
+    try {
+      const dv = await this.activityChar.readValue();
+      const bytes = new Uint8Array(dv.buffer, dv.byteOffset, dv.byteLength);
+      this.onDataReceived?.(bytesToHex(bytes));
+      this.dispatchParsedHealth(parseFee1Activity(bytes));
+    } catch {
+      // Non-fatal
+    }
   }
 
   disconnect(): void {

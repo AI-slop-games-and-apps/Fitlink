@@ -84,6 +84,8 @@ public:
     bool sendFindWatch();
     void refreshBattery();
     bool requestHealthSync();
+    bool requestHeartRateReading();
+    bool requestSpo2Reading();
 
 signals:
     void stateChanged(ConnectionState state);

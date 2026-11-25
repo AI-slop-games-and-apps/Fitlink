@@ -14,11 +14,15 @@ import type { ActivityState, DistanceUnit, WeeklyActivityDay } from '../types/fi
 interface ActivityViewProps {
   isConnected: boolean;
   isSyncing: boolean;
+  isMeasuringHeartRate: boolean;
+  isMeasuringSpo2: boolean;
   activity: ActivityState;
   weeklyDays: WeeklyActivityDay[];
   todaySteps: number | null;
   todayDistanceMeters: number | null;
   onRefresh: () => void;
+  onMeasureHeartRate: () => void;
+  onMeasureSpo2: () => void;
   onChangeUnit: (unit: DistanceUnit) => void;
   onChangeDailyGoalMeters: (meters: number) => void;
 }
@@ -65,11 +69,15 @@ function computeStats(samples: number[]): { min: number; avg: number; max: numbe
 export function ActivityView({
   isConnected,
   isSyncing,
+  isMeasuringHeartRate,
+  isMeasuringSpo2,
   activity,
   weeklyDays,
   todaySteps,
   todayDistanceMeters,
   onRefresh,
+  onMeasureHeartRate,
+  onMeasureSpo2,
   onChangeUnit,
   onChangeDailyGoalMeters,
 }: ActivityViewProps) {
@@ -458,16 +466,27 @@ export function ActivityView({
           {/* Left Side: Heart Rate */}
           <div className="flex flex-col justify-between p-6">
             <div>
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <HeartPulse className="h-4 w-4 text-[#DC2626]" />
-                  <h3 className="text-base font-semibold text-[#0F172A]">Heart Rate</h3>
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <HeartPulse className="h-4 w-4 text-[#DC2626]" />
+                    <h3 className="text-base font-semibold text-[#0F172A]">Heart Rate</h3>
+                  </div>
+                  <div className="mt-0.5 font-mono text-xs text-[#64748B] tabular-nums">
+                    {activity.heartRateUpdatedAt
+                      ? `Updated ${activity.heartRateUpdatedAt}`
+                      : 'Waiting for sensor'}
+                  </div>
                 </div>
-                <span className="font-mono text-xs text-[#64748B] tabular-nums">
-                  {activity.heartRateUpdatedAt
-                    ? `Updated ${activity.heartRateUpdatedAt}`
-                    : 'Waiting for sensor'}
-                </span>
+                <button
+                  type="button"
+                  onClick={onMeasureHeartRate}
+                  disabled={!isConnected || isMeasuringHeartRate}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#DC2626] px-3 text-xs font-medium text-white transition-colors hover:bg-[#B91C1C] disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#DC2626] whitespace-nowrap shrink-0"
+                >
+                  <HeartPulse className={`h-3.5 w-3.5 ${isMeasuringHeartRate ? 'animate-pulse' : ''}`} />
+                  <span>{isMeasuringHeartRate ? 'Measuring...' : 'Measure'}</span>
+                </button>
               </div>
 
               <div className="mt-5 flex items-baseline justify-between gap-4">
@@ -545,16 +564,27 @@ export function ActivityView({
           {/* Right Side: SpO2 */}
           <div className="flex flex-col justify-between p-6">
             <div>
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <Droplets className="h-4 w-4 text-[#0891B2]" />
-                  <h3 className="text-base font-semibold text-[#0F172A]">SpO2</h3>
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <Droplets className="h-4 w-4 text-[#0891B2]" />
+                    <h3 className="text-base font-semibold text-[#0F172A]">SpO2</h3>
+                  </div>
+                  <div className="mt-0.5 font-mono text-xs text-[#64748B] tabular-nums">
+                    {activity.spo2UpdatedAt
+                      ? `Updated ${activity.spo2UpdatedAt}`
+                      : 'Waiting for sensor'}
+                  </div>
                 </div>
-                <span className="font-mono text-xs text-[#64748B] tabular-nums">
-                  {activity.spo2UpdatedAt
-                    ? `Updated ${activity.spo2UpdatedAt}`
-                    : 'Waiting for sensor'}
-                </span>
+                <button
+                  type="button"
+                  onClick={onMeasureSpo2}
+                  disabled={!isConnected || isMeasuringSpo2}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#0891B2] px-3 text-xs font-medium text-white transition-colors hover:bg-[#0E7490] disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0891B2] whitespace-nowrap shrink-0"
+                >
+                  <Droplets className={`h-3.5 w-3.5 ${isMeasuringSpo2 ? 'animate-pulse' : ''}`} />
+                  <span>{isMeasuringSpo2 ? 'Measuring...' : 'Measure'}</span>
+                </button>
               </div>
 
               <div className="mt-5 flex items-baseline justify-between gap-4">
