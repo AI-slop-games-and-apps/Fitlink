@@ -55,7 +55,6 @@ jobs:
           fi
           echo "Building with VITE_BASE_PATH=${VITE_BASE_PATH}"
           npm run build
-          rm -rf dist/assets/aistudio
           touch dist/.nojekyll
           cp dist/index.html dist/404.html
 

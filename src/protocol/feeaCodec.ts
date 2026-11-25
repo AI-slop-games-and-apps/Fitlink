@@ -51,9 +51,9 @@ export const FEEA_CMD = {
   GET_TIME: 0x41,
   FIND_WATCH: 0x61,
   PUSH_NOTIFICATION: 0x64,
-  MEASURE_BLOOD_PRESSURE: 0x69, // 0x69 start / 0x6A stop single Blood Pressure (verified on BSW003)
+  MEASURE_BLOOD_PRESSURE: 0x69, // 0x69 start / 0x6A stop single Blood Pressure
   STOP_BLOOD_PRESSURE: 0x6a,
-  MEASURE_SPO2: 0x6b, // 0x6B start / 0x6C stop SpO2 (verified on BSW003)
+  MEASURE_SPO2: 0x6b, // 0x6B start / 0x6C stop SpO2
   STOP_SPO2: 0x6c,
   MEASURE_HEART_RATE: 0x6d, // 0x6D start / 0x6E stop single Heart Rate
   STOP_HEART_RATE: 0x6e,
