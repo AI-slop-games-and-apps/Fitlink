@@ -247,39 +247,84 @@ jobs:
         run: |
           git tag -f latest "${GITHUB_SHA}"
           git push -f origin refs/tags/latest
+          # Give GitHub a few seconds to index the updated tag ref before updating the release
+          sleep 3
 
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
         with:
           path: dist-artifacts
 
-      - name: Publish rolling latest GitHub Release
-        if: "!startsWith(github.ref, 'refs/tags/v')"
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: latest
-          name: FitLink Latest Build
-          body: |
-            Automated build from commit `${{ github.sha }}`.
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
 
-            ### Included Packages
-            - `fitlink-debian-amd64.deb` — Debian Linux (64-bit x86_64)
-            - `fitlink-debian-arm64.deb` — Debian Linux (64-bit ARM / Raspberry Pi / ARM64)
-            - `fitlink-android-arm64-v8a.apk` — Android (64-bit ARM)
-            - `fitlink-android-armeabi-v7a.apk` — Android (32-bit ARM)
-          overwrite_files: true
-          make_latest: true
-          files: |
-            dist-artifacts/**/*.deb
-            dist-artifacts/**/*.apk
+          mkdir -p release-assets
+          find dist-artifacts -type f \( -name "*.deb" -o -name "*.apk" \) -exec cp -v {} release-assets/ \;
+          ASSETS=(release-assets/*)
+          if [ ! -e "${ASSETS[0]}" ]; then
+            echo "No .deb or .apk release assets found!"
+            exit 1
+          fi
+          ls -lh release-assets/
 
-      - name: Publish versioned GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          generate_release_notes: true
-          overwrite_files: true
-          make_latest: true
-          files: |
-            dist-artifacts/**/*.deb
-            dist-artifacts/**/*.apk
+          retry() {
+            local max_attempts=4
+            local attempt=1
+            local delay=5
+            while true; do
+              if "$@"; then
+                return 0
+              fi
+              if [ "${attempt}" -ge "${max_attempts}" ]; then
+                echo "Command failed after ${max_attempts} attempts: $*"
+                return 1
+              fi
+              echo "Attempt ${attempt} failed (transient GitHub API error). Retrying in ${delay}s..."
+              sleep "${delay}"
+              attempt=$((attempt + 1))
+              delay=$((delay + 5))
+            done
+          }
+
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            TAG="${GITHUB_REF_NAME}"
+            if gh release view "${TAG}" >/dev/null 2>&1; then
+              retry gh release edit "${TAG}" --latest
+              retry gh release upload "${TAG}" "${ASSETS[@]}" --clobber
+            else
+              retry gh release create "${TAG}" "${ASSETS[@]}" \
+                --generate-notes \
+                --latest
+            fi
+          else
+            TAG="latest"
+            cat <<EOF > release-notes.md
+          Automated build from commit \`${GITHUB_SHA}\`.
+
+          ### Included Packages
+          - \`fitlink-debian-amd64.deb\` — Debian Linux (64-bit x86_64)
+          - \`fitlink-debian-arm64.deb\` — Debian Linux (64-bit ARM / Raspberry Pi / ARM64)
+          - \`fitlink-android-arm64-v8a.apk\` — Android (64-bit ARM)
+          - \`fitlink-android-armeabi-v7a.apk\` — Android (32-bit ARM)
+          EOF
+
+            if gh release view "${TAG}" >/dev/null 2>&1; then
+              retry gh release edit "${TAG}" \
+                --title "FitLink Latest Build" \
+                --notes-file release-notes.md \
+                --latest
+              retry gh release upload "${TAG}" "${ASSETS[@]}" --clobber
+            else
+              retry gh release create "${TAG}" "${ASSETS[@]}" \
+                --title "FitLink Latest Build" \
+                --notes-file release-notes.md \
+                --latest
+            fi
+          fi
