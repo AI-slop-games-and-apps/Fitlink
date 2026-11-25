@@ -76,10 +76,10 @@ jobs:
           - abi: armeabi-v7a
             qt_arch: android_armv7
     env:
-      QT_VERSION: '6.8.2'
-      ANDROID_COMPILE_SDK: '34'
-      ANDROID_BUILD_TOOLS: '34.0.0'
-      ANDROID_NDK_VERSION: '26.1.10909125'
+      QT_VERSION: '6.9.3'
+      ANDROID_COMPILE_SDK: '35'
+      ANDROID_BUILD_TOOLS: '35.0.1'
+      ANDROID_NDK_VERSION: '27.2.12479018'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -96,10 +96,9 @@ jobs:
           sudo apt-get install -y --no-install-recommends ninja-build
           yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" \
             "platform-tools" \
+            "platforms;android-34" \
             "platforms;android-${ANDROID_COMPILE_SDK}" \
-            "platforms;android-35" \
             "build-tools;${ANDROID_BUILD_TOOLS}" \
-            "build-tools;35.0.0" \
             "ndk;${ANDROID_NDK_VERSION}"
 
       - name: Install Qt ${{ env.QT_VERSION }} host tools (Linux desktop)
@@ -204,7 +203,7 @@ jobs:
           ALIGNED_APK="${{ runner.temp }}/fitlink-android-${{ matrix.abi }}-aligned.apk"
           SIGNED_APK="qt/dist-${{ matrix.abi }}/fitlink-android-${{ matrix.abi }}.apk"
 
-          "${BUILD_TOOLS_DIR}/zipalign" -f -p 4 "${RAW_APK}" "${ALIGNED_APK}"
+          "${BUILD_TOOLS_DIR}/zipalign" -P 16 -f -p 4 "${RAW_APK}" "${ALIGNED_APK}"
           "${BUILD_TOOLS_DIR}/apksigner" sign \
             --ks "${KEYSTORE_PATH}" \
             --ks-pass "pass:${KS_PASS}" \

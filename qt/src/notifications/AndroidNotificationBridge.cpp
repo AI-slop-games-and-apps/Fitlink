@@ -3,9 +3,11 @@
 #include <QMetaObject>
 #include <QMutex>
 #include <QMutexLocker>
+#include <QTimer>
 
 #if defined(Q_OS_ANDROID)
 #include <QCoreApplication>
+#include <QJniEnvironment>
 #include <QJniObject>
 #include <jni.h>
 #endif
@@ -23,7 +25,8 @@ AndroidNotificationBridge::AndroidNotificationBridge(QObject *parent)
         QMutexLocker locker(&g_bridgeMutex);
         g_activeBridge = this;
     }
-    refreshPermissionState();
+    // Defer initial Android JNI check until QtActivity and the event loop are initialized
+    QTimer::singleShot(0, this, &AndroidNotificationBridge::refreshPermissionState);
 }
 
 AndroidNotificationBridge::~AndroidNotificationBridge() {
@@ -46,25 +49,26 @@ void AndroidNotificationBridge::setEnabled(bool enabled) {
 
 void AndroidNotificationBridge::refreshPermissionState() {
 #if defined(Q_OS_ANDROID)
+    QJniEnvironment env;
     QJniObject context = QNativeInterface::QAndroidApplication::context();
     if (!context.isValid()) {
+        env.checkAndClearExceptions();
         return;
     }
-    QJniObject resolver = context.callObjectMethod(
-        "getContentResolver",
-        "()Landroid/content/ContentResolver;"
+
+    const jboolean granted = QJniObject::callStaticMethod<jboolean>(
+        "org/fitlink/watch/FitLinkNotificationService",
+        "isNotificationAccessGranted",
+        "(Landroid/content/Context;)Z",
+        context.object<jobject>()
     );
-    QJniObject listeners = QJniObject::callStaticObjectMethod(
-        "android/provider/Settings$Secure",
-        "getString",
-        "(Landroid/content/ContentResolver;Ljava/lang/String;)Ljava/lang/String;",
-        resolver.object<jobject>(),
-        QJniObject::fromString(QStringLiteral("enabled_notification_listeners")).object<jstring>()
-    );
-    const QString enabledList = listeners.isValid() ? listeners.toString() : QString();
-    const bool granted = enabledList.contains(QStringLiteral("org.fitlink.watch"));
-    if (m_hasPermission != granted) {
-        m_hasPermission = granted;
+    if (env.checkAndClearExceptions()) {
+        return;
+    }
+
+    const bool hasPerm = (granted == JNI_TRUE);
+    if (m_hasPermission != hasPerm) {
+        m_hasPermission = hasPerm;
         emit stateChanged();
     }
 #endif
@@ -72,18 +76,19 @@ void AndroidNotificationBridge::refreshPermissionState() {
 
 void AndroidNotificationBridge::openPermissionSettings() {
 #if defined(Q_OS_ANDROID)
+    QJniEnvironment env;
     QJniObject context = QNativeInterface::QAndroidApplication::context();
     if (!context.isValid()) {
+        env.checkAndClearExceptions();
         return;
     }
-    QJniObject intent(
-        "android/content/Intent",
-        "(Ljava/lang/String;)V",
-        QJniObject::fromString(QStringLiteral("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS")).object<jstring>()
+    QJniObject::callStaticMethod<void>(
+        "org/fitlink/watch/FitLinkNotificationService",
+        "openNotificationAccessSettings",
+        "(Landroid/content/Context;)V",
+        context.object<jobject>()
     );
-    // FLAG_ACTIVITY_NEW_TASK = 0x10000000
-    intent.callObjectMethod("addFlags", "(I)Landroid/content/Intent;", 0x10000000);
-    context.callMethod<void>("startActivity", "(Landroid/content/Intent;)V", intent.object<jobject>());
+    env.checkAndClearExceptions();
 #endif
 }
 
@@ -120,6 +125,7 @@ Java_org_fitlink_watch_FitLinkNotificationService_nativeOnNotificationPosted(
     auto toQString = [env](jstring str) -> QString {
         if (!str) return QString();
         const char *utf = env->GetStringUTFChars(str, nullptr);
+        if (!utf) return QString();
         QString out = QString::fromUtf8(utf);
         env->ReleaseStringUTFChars(str, utf);
         return out;

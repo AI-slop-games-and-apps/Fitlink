@@ -1,8 +1,10 @@
 #include "core/AppController.h"
 
+#include <QDebug>
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QQmlError>
 #include <QQuickStyle>
 
 int main(int argc, char *argv[]) {
@@ -22,9 +24,23 @@ int main(int argc, char *argv[]) {
 
     QObject::connect(
         &engine,
+        &QQmlApplicationEngine::warnings,
+        &app,
+        [](const QList<QQmlError> &warnings) {
+            for (const auto &w : warnings) {
+                qWarning() << "[FitLink QML]" << w.toString();
+            }
+        }
+    );
+
+    QObject::connect(
+        &engine,
         &QQmlApplicationEngine::objectCreationFailed,
         &app,
-        []() { QCoreApplication::exit(-1); },
+        []() {
+            qCritical() << "[FitLink] Failed to load root QML module FitLink/Main";
+            QCoreApplication::exit(-1);
+        },
         Qt::QueuedConnection
     );
 

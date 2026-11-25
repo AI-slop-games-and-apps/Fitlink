@@ -560,14 +560,15 @@ ScrollView {
 
                 // Selected Day Detail Footer
                 RowLayout {
+                    id: selectedDayFooter
                     Layout.fillWidth: true
                     spacing: 16
                     property var day: root.selectedDayData()
 
                     Label {
-                        text: day.isToday
-                              ? qsTr("%1 (%2 · Today)").arg(day.dayFull).arg(day.dateLabel)
-                              : qsTr("%1 (%2)").arg(day.dayFull).arg(day.dateLabel)
+                        text: selectedDayFooter.day.isToday
+                              ? qsTr("%1 (%2 · Today)").arg(selectedDayFooter.day.dayFull).arg(selectedDayFooter.day.dateLabel)
+                              : qsTr("%1 (%2)").arg(selectedDayFooter.day.dayFull).arg(selectedDayFooter.day.dateLabel)
                         font.pixelSize: 13
                         font.weight: Font.DemiBold
                         color: "#0F172A"
@@ -575,10 +576,10 @@ ScrollView {
                     }
 
                     Label {
-                        text: day.hasData
+                        text: selectedDayFooter.day.hasData
                               ? qsTr("%1 · %2 steps")
-                                    .arg(appController.formatDistanceWithUnit(day.distanceMeters))
-                                    .arg(day.steps.toLocaleString())
+                                    .arg(appController.formatDistanceWithUnit(selectedDayFooter.day.distanceMeters))
+                                    .arg(selectedDayFooter.day.steps.toLocaleString())
                               : qsTr("No synced distance")
                         font.pixelSize: 13
                         font.weight: Font.Medium
@@ -586,15 +587,15 @@ ScrollView {
                     }
 
                     Label {
-                        readonly property int pct: Math.round((day.distanceMeters / Math.max(1, appController.dailyDistanceGoalMeters)) * 100)
-                        text: !day.hasData
+                        readonly property int pct: Math.round((selectedDayFooter.day.distanceMeters / Math.max(1, appController.dailyDistanceGoalMeters)) * 100)
+                        text: !selectedDayFooter.day.hasData
                               ? qsTr("0% of goal")
-                              : (day.distanceMeters >= appController.dailyDistanceGoalMeters
+                              : (selectedDayFooter.day.distanceMeters >= appController.dailyDistanceGoalMeters
                                  ? qsTr("Goal reached (%1%)").arg(pct)
-                                 : qsTr("%1 to goal").arg(appController.formatDistanceWithUnit(appController.dailyDistanceGoalMeters - day.distanceMeters)))
+                                 : qsTr("%1 to goal").arg(appController.formatDistanceWithUnit(appController.dailyDistanceGoalMeters - selectedDayFooter.day.distanceMeters)))
                         font.pixelSize: 12
                         font.weight: Font.Medium
-                        color: (day.hasData && day.distanceMeters >= appController.dailyDistanceGoalMeters) ? "#16A34A" : "#64748B"
+                        color: (selectedDayFooter.day.hasData && selectedDayFooter.day.distanceMeters >= appController.dailyDistanceGoalMeters) ? "#16A34A" : "#64748B"
                     }
                 }
             }

@@ -1,9 +1,15 @@
 package org.fitlink.watch;
 
 import android.app.Notification;
+import android.app.NotificationManager;
+import android.content.ComponentName;
+import android.content.Context;
+import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
+import android.os.Build;
 import android.os.Bundle;
+import android.provider.Settings;
 import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
 import android.util.Log;
@@ -18,6 +24,44 @@ public class FitLinkNotificationService extends NotificationListenerService {
             String title,
             String body
     );
+
+    // Safe Java helper called from C++ JNI (uses official API 27+ NotificationManager check, never throws)
+    public static boolean isNotificationAccessGranted(Context context) {
+        if (context == null) {
+            return false;
+        }
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+                if (nm != null) {
+                    ComponentName cn = new ComponentName(context, FitLinkNotificationService.class);
+                    return nm.isNotificationListenerAccessGranted(cn);
+                }
+            }
+            String enabled = Settings.Secure.getString(
+                    context.getContentResolver(),
+                    "enabled_notification_listeners"
+            );
+            return enabled != null && enabled.contains(context.getPackageName());
+        } catch (Throwable t) {
+            Log.w(TAG, "Unable to query notification listener permission", t);
+            return false;
+        }
+    }
+
+    // Safe Java helper to open Android Notification Listener settings without risking unhandled JNI exceptions
+    public static void openNotificationAccessSettings(Context context) {
+        if (context == null) {
+            return;
+        }
+        try {
+            Intent intent = new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            context.startActivity(intent);
+        } catch (Throwable t) {
+            Log.w(TAG, "Unable to open notification listener settings", t);
+        }
+    }
 
     @Override
     public void onNotificationPosted(StatusBarNotification sbn) {
@@ -63,8 +107,8 @@ public class FitLinkNotificationService extends NotificationListenerService {
         } catch (UnsatisfiedLinkError e) {
             // Native Qt library may not be loaded if user hasn't opened FitLink yet
             Log.w(TAG, "FitLink native library not loaded; skipping notification mirror");
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to mirror notification", e);
+        } catch (Throwable t) {
+            Log.e(TAG, "Failed to mirror notification", t);
         }
     }
 
@@ -74,7 +118,7 @@ public class FitLinkNotificationService extends NotificationListenerService {
             ApplicationInfo info = pm.getApplicationInfo(packageName, 0);
             CharSequence label = pm.getApplicationLabel(info);
             return label != null ? label.toString() : packageName;
-        } catch (Exception ignored) {
+        } catch (Throwable ignored) {
             return packageName;
         }
     }

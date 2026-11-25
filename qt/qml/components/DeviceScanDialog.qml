@@ -8,8 +8,8 @@ Dialog {
     title: qsTr("Connect BLE Watch")
     modal: true
     anchors.centerIn: parent
-    width: Math.min(parent.width - 32, 460)
-    height: Math.min(parent.height - 64, 520)
+    width: parent ? Math.min(parent.width - 32, 460) : 340
+    height: parent ? Math.min(parent.height - 64, 520) : 460
     standardButtons: Dialog.Close
 
     onClosed: appController.stopScan()

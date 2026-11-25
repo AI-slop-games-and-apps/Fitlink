@@ -50,6 +50,7 @@ else()
 endif()
 
 qt_add_executable(fitlink
+    MANUAL_FINALIZATION
     ${FITLINK_SOURCES}
 )
 
@@ -83,6 +84,8 @@ if(UNIX AND NOT ANDROID AND NOT APPLE)
     target_compile_definitions(fitlink PRIVATE FITLINK_PLATFORM_LINUX_DBUS=1)
 elseif(ANDROID)
     target_compile_definitions(fitlink PRIVATE FITLINK_PLATFORM_ANDROID=1)
+    # Align native ELF LOAD segments to 16 KB for Android 15+ 16 KB page-size devices
+    target_link_options(fitlink PRIVATE "-Wl,-z,max-page-size=16384")
     set_target_properties(fitlink PROPERTIES
         QT_ANDROID_PACKAGE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/android"
         QT_ANDROID_PACKAGE_NAME "org.fitlink.watch"
@@ -95,6 +98,8 @@ elseif(WIN32)
     target_compile_definitions(fitlink PRIVATE FITLINK_PLATFORM_WINDOWS=1)
     set_target_properties(fitlink PROPERTIES WIN32_EXECUTABLE TRUE)
 endif()
+
+qt_finalize_executable(fitlink)
 
 # Linux desktop install & CPack .deb rules (supports both amd64 and arm64)
 if(UNIX AND NOT ANDROID AND NOT APPLE)
