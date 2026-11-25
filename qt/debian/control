@@ -20,12 +20,13 @@ Architecture: amd64 arm64
 Depends:
  ${shlibs:Depends},
  ${misc:Depends},
- bluez,
  qml6-module-qtquick,
  qml6-module-qtquick-controls,
  qml6-module-qtquick-layouts,
  qml6-module-qtquick-templates,
  qml6-module-qtquick-window
+Suggests:
+ bluez
 Description: Cross-platform Qt 6 companion for 0xFEEA BLE smartwatches
  FitLink connects over Bluetooth Low Energy (BLE) to compatible 0xFEEA
  protocol smartwatches (V1 and V2 framing) to synchronize system time,

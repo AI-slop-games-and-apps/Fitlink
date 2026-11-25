@@ -21,6 +21,7 @@ ApplicationWindow {
     readonly property bool isCompact: width < 768
     readonly property var navItems: [
         { label: qsTr("Overview") },
+        { label: qsTr("Activity") },
         { label: qsTr("Time Sync") },
         { label: qsTr("Notifications") },
         { label: qsTr("Device & Protocol") }
@@ -130,9 +131,13 @@ ApplicationWindow {
                               ? (appController.batteryLevel >= 0
                                  ? qsTr("Connected · %1% · %2").arg(appController.batteryLevel).arg(appController.activeProtocolLabel)
                                  : qsTr("Connected · %1").arg(appController.activeProtocolLabel))
-                              : qsTr("Disconnected · BLE Ready")
+                              : (appController.bluetoothAvailable
+                                 ? qsTr("Disconnected · BLE Ready")
+                                 : qsTr("Bluetooth Unavailable"))
                         font.pixelSize: 12
-                        color: appController.isConnected ? "#16A34A" : "#64748B"
+                        color: appController.isConnected
+                               ? "#16A34A"
+                               : (appController.bluetoothAvailable ? "#64748B" : "#D97706")
                         elide: Text.ElideRight
                         Layout.fillWidth: true
                     }
@@ -184,9 +189,51 @@ ApplicationWindow {
                                 appController.disconnectDevice()
                             } else {
                                 scanDialog.open()
-                                appController.startScan()
+                                if (appController.bluetoothAvailable) {
+                                    appController.startScan()
+                                }
                             }
                         }
+                    }
+                }
+            }
+
+            // Non-blocking Bluetooth / BlueZ availability notice on launch
+            Rectangle {
+                visible: !appController.bluetoothAvailable
+                Layout.fillWidth: true
+                Layout.preferredHeight: btBannerRow.implicitHeight + 16
+                color: "#FFFBEB"
+
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    height: 1
+                    color: "#FDE68A"
+                }
+
+                RowLayout {
+                    id: btBannerRow
+                    anchors.fill: parent
+                    anchors.leftMargin: 24
+                    anchors.rightMargin: 24
+                    anchors.topMargin: 8
+                    anchors.bottomMargin: 8
+                    spacing: 12
+
+                    Label {
+                        text: appController.bluetoothStatusMessage
+                        font.pixelSize: 13
+                        color: "#92400E"
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                    }
+
+                    Button {
+                        text: qsTr("Recheck")
+                        flat: true
+                        onClicked: appController.recheckBluetoothAvailability()
                     }
                 }
             }
@@ -198,6 +245,7 @@ ApplicationWindow {
                 currentIndex: window.currentTab
 
                 OverviewView {}
+                ActivityView {}
                 TimeSyncView {}
                 NotificationsView {}
                 DeviceProtocolView {}
@@ -211,6 +259,7 @@ ApplicationWindow {
                 onCurrentIndexChanged: window.currentTab = currentIndex
 
                 TabButton { text: qsTr("Overview") }
+                TabButton { text: qsTr("Activity") }
                 TabButton { text: qsTr("Time") }
                 TabButton { text: qsTr("Alerts") }
                 TabButton { text: qsTr("Device") }

@@ -60,6 +60,7 @@ qt_add_qml_module(fitlink
         qml/Main.qml
         qml/components/DeviceScanDialog.qml
         qml/views/OverviewView.qml
+        qml/views/ActivityView.qml
         qml/views/TimeSyncView.qml
         qml/views/NotificationsView.qml
         qml/views/DeviceProtocolView.qml
@@ -115,7 +116,8 @@ if(UNIX AND NOT ANDROID AND NOT APPLE)
     set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Qt 6 BLE Smartwatch Companion (0xFEEA Protocol)")
     set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
     set(CPACK_DEBIAN_PACKAGE_SECTION "utils")
-    set(CPACK_DEBIAN_PACKAGE_DEPENDS "bluez, qml6-module-qtquick-controls, qml6-module-qtquick-layouts, qml6-module-qtquick-templates, qml6-module-qtquick-window")
+    set(CPACK_DEBIAN_PACKAGE_DEPENDS "qml6-module-qtquick-controls, qml6-module-qtquick-layouts, qml6-module-qtquick-templates, qml6-module-qtquick-window")
+    set(CPACK_DEBIAN_PACKAGE_SUGGESTS "bluez")
     set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
     include(CPack)
 endif()

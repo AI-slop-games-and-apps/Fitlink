@@ -22,6 +22,7 @@ Dialog {
             Layout.fillWidth: true
             Switch {
                 text: qsTr("Show all BLE devices")
+                enabled: appController.bluetoothAvailable
                 checked: appController.showAllBleDevices
                 onToggled: {
                     appController.showAllBleDevices = checked
@@ -30,9 +31,22 @@ Dialog {
             }
             Item { Layout.fillWidth: true }
             Button {
-                text: appController.isScanning ? qsTr("Stop Scan") : qsTr("Rescan")
+                text: !appController.bluetoothAvailable
+                      ? qsTr("Recheck Bluetooth")
+                      : (appController.isScanning ? qsTr("Stop Scan") : qsTr("Rescan"))
                 flat: true
-                onClicked: appController.isScanning ? appController.stopScan() : appController.startScan()
+                onClicked: {
+                    if (!appController.bluetoothAvailable) {
+                        appController.recheckBluetoothAvailability()
+                        if (appController.bluetoothAvailable) {
+                            appController.startScan()
+                        }
+                    } else if (appController.isScanning) {
+                        appController.stopScan()
+                    } else {
+                        appController.startScan()
+                    }
+                }
             }
         }
 
@@ -93,10 +107,14 @@ Dialog {
 
             Label {
                 anchors.centerIn: parent
+                width: parent.width - 32
+                wrapMode: Text.WordWrap
                 visible: appController.discoveredDevices.length === 0 && !appController.isScanning
-                text: qsTr("No compatible watches found yet.\nWake your watch screen and tap Rescan.")
+                text: appController.bluetoothAvailable
+                      ? qsTr("No compatible watches found yet.\nWake your watch screen and tap Rescan.")
+                      : appController.bluetoothStatusMessage
                 horizontalAlignment: Text.AlignHCenter
-                color: "#64748B"
+                color: appController.bluetoothAvailable ? "#64748B" : "#92400E"
             }
         }
     }

@@ -17,6 +17,8 @@ class AppController : public QObject {
 
     Q_PROPERTY(int connectionState READ connectionState NOTIFY connectionStateChanged)
     Q_PROPERTY(QString connectionStateText READ connectionStateText NOTIFY connectionStateChanged)
+    Q_PROPERTY(bool bluetoothAvailable READ bluetoothAvailable NOTIFY bluetoothAvailabilityChanged)
+    Q_PROPERTY(QString bluetoothStatusMessage READ bluetoothStatusMessage NOTIFY bluetoothAvailabilityChanged)
     Q_PROPERTY(bool isConnected READ isConnected NOTIFY connectionStateChanged)
     Q_PROPERTY(bool isScanning READ isScanning NOTIFY connectionStateChanged)
     Q_PROPERTY(bool showAllBleDevices READ showAllBleDevices WRITE setShowAllBleDevices NOTIFY scanOptionsChanged)
@@ -47,11 +49,27 @@ class AppController : public QObject {
     Q_PROPERTY(QVariantList scheduledAlerts READ scheduledAlerts NOTIFY scheduledAlertsChanged)
     Q_PROPERTY(QVariantList packetLog READ packetLog NOTIFY packetLogChanged)
 
+    Q_PROPERTY(QString distanceUnit READ distanceUnit WRITE setDistanceUnit NOTIFY activityChanged)
+    Q_PROPERTY(int dailyDistanceGoalMeters READ dailyDistanceGoalMeters WRITE setDailyDistanceGoalMeters NOTIFY activityChanged)
+    Q_PROPERTY(int todaySteps READ todaySteps NOTIFY activityChanged)
+    Q_PROPERTY(int todayDistanceMeters READ todayDistanceMeters NOTIFY activityChanged)
+    Q_PROPERTY(QVariantList weeklyActivity READ weeklyActivity NOTIFY activityChanged)
+    Q_PROPERTY(int latestHeartRate READ latestHeartRate NOTIFY activityChanged)
+    Q_PROPERTY(QString heartRateUpdatedAt READ heartRateUpdatedAt NOTIFY activityChanged)
+    Q_PROPERTY(QVariantList heartRateSamples READ heartRateSamples NOTIFY activityChanged)
+    Q_PROPERTY(int latestSpo2 READ latestSpo2 NOTIFY activityChanged)
+    Q_PROPERTY(QString spo2UpdatedAt READ spo2UpdatedAt NOTIFY activityChanged)
+    Q_PROPERTY(QVariantList spo2Samples READ spo2Samples NOTIFY activityChanged)
+    Q_PROPERTY(QString lastActivitySyncText READ lastActivitySyncText NOTIFY activityChanged)
+    Q_PROPERTY(bool isSyncingActivity READ isSyncingActivity NOTIFY activityChanged)
+
 public:
     explicit AppController(QObject *parent = nullptr);
 
     int connectionState() const;
     QString connectionStateText() const;
+    bool bluetoothAvailable() const;
+    QString bluetoothStatusMessage() const;
     bool isConnected() const;
     bool isScanning() const;
     bool showAllBleDevices() const;
@@ -89,7 +107,24 @@ public:
     QVariantList scheduledAlerts() const { return m_scheduledAlerts; }
     QVariantList packetLog() const { return m_packetLog; }
 
+    QString distanceUnit() const { return m_distanceUnit; }
+    void setDistanceUnit(const QString &unit);
+    int dailyDistanceGoalMeters() const { return m_dailyDistanceGoalMeters; }
+    void setDailyDistanceGoalMeters(int meters);
+    int todaySteps() const;
+    int todayDistanceMeters() const;
+    QVariantList weeklyActivity() const;
+    int latestHeartRate() const { return m_latestHeartRate; }
+    QString heartRateUpdatedAt() const;
+    QVariantList heartRateSamples() const { return m_heartRateSamples; }
+    int latestSpo2() const { return m_latestSpo2; }
+    QString spo2UpdatedAt() const;
+    QVariantList spo2Samples() const { return m_spo2Samples; }
+    QString lastActivitySyncText() const;
+    bool isSyncingActivity() const { return m_isSyncingActivity; }
+
     // BLE & Device actions
+    Q_INVOKABLE void recheckBluetoothAvailability();
     Q_INVOKABLE void startScan();
     Q_INVOKABLE void stopScan();
     Q_INVOKABLE void connectToDevice(const QString &addressOrId);
@@ -126,8 +161,14 @@ public:
 
     Q_INVOKABLE void clearPacketLog();
 
+    // Activity & Vitals actions
+    Q_INVOKABLE void refreshActivity();
+    Q_INVOKABLE QString formatDistance(int meters) const;
+    Q_INVOKABLE QString formatDistanceWithUnit(int meters) const;
+
 signals:
     void connectionStateChanged();
+    void bluetoothAvailabilityChanged();
     void scanOptionsChanged();
     void discoveredDevicesChanged();
     void deviceChanged();
@@ -140,10 +181,14 @@ signals:
     void templatesChanged();
     void scheduledAlertsChanged();
     void packetLogChanged();
+    void activityChanged();
     void toastMessage(const QString &message, bool isError);
 
 private slots:
     void onBleStateChanged(BleWatchManager::ConnectionState state);
+    void onActivityDataReceived(int dayOffset, int steps, int distanceMeters);
+    void onHeartRateReceived(int bpm);
+    void onSpo2Received(int percent);
     void onPacketLogged(const QString &direction,
                         const QString &actionLabel,
                         const QString &protocolLabel,
@@ -160,6 +205,7 @@ private:
     void loadPersistedState();
     void savePersistedState() const;
     void seedDefaultFiltersAndTemplates();
+    void ensureCurrentWeekBuckets();
     QString stateFilePath() const;
     qint64 computeNextRunMs(const QString &mode, const QString &targetHHMM, int intervalMinutes) const;
 
@@ -170,6 +216,18 @@ private:
     bool m_use24Hour = true;
     bool m_autoSyncOnConnect = true;
     QDateTime m_lastSyncedAt;
+
+    QString m_distanceUnit = QStringLiteral("km");
+    int m_dailyDistanceGoalMeters = 5000;
+    QVariantMap m_dailyActivityByDate; // dateKey -> { steps, distanceMeters }
+    int m_latestHeartRate = -1;
+    QDateTime m_heartRateUpdatedAt;
+    QVariantList m_heartRateSamples;
+    int m_latestSpo2 = -1;
+    QDateTime m_spo2UpdatedAt;
+    QVariantList m_spo2Samples;
+    QDateTime m_lastActivitySyncedAt;
+    bool m_isSyncingActivity = false;
 
     QVariantList m_appFilters;
     QVariantList m_templates;

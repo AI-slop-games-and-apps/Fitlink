@@ -58,7 +58,27 @@ inline const QBluetoothUuid CharHardwareRevision(QBluetoothUuid::CharacteristicT
 
 inline const QBluetoothUuid ServiceImmediateAlert(QBluetoothUuid::ServiceClassUuid::ImmediateAlert);
 inline const QBluetoothUuid CharAlertLevel(QBluetoothUuid::CharacteristicType::AlertLevel);
+
+inline const QBluetoothUuid ServiceHeartRate(QBluetoothUuid::ServiceClassUuid::HeartRate);
+inline const QBluetoothUuid CharHeartRateMeasurement(QBluetoothUuid::CharacteristicType::HeartRateMeasurement);
+
+inline const QBluetoothUuid ServicePulseOximeter(static_cast<uint16_t>(0x1822));
+inline const QBluetoothUuid CharPlxSpotCheck(static_cast<uint16_t>(0x2A5E));
+inline const QBluetoothUuid CharPlxContinuous(static_cast<uint16_t>(0x2A5F));
 } // namespace GattUuids
+
+struct ParsedHealthPacket {
+    bool valid = false;
+    bool hasSteps = false;
+    int steps = 0;
+    bool hasDistanceMeters = false;
+    int distanceMeters = 0;
+    int dayOffset = 0; // 0 = today, 1 = yesterday, ...
+    bool hasHeartRate = false;
+    int heartRateBpm = 0;
+    bool hasSpo2 = false;
+    int spo2Percent = 0;
+};
 
 class FeeaCodec {
 public:
@@ -69,8 +89,11 @@ public:
     // Documented 0xFEEA BLE command opcodes
     static constexpr uint8_t CmdSetTimeFormat    = 0x27;
     static constexpr uint8_t CmdSetTime          = 0x31;
+    static constexpr uint8_t CmdSyncActivity     = 0x51;
     static constexpr uint8_t CmdFindWatch        = 0x61;
     static constexpr uint8_t CmdPushNotification = 0x64;
+    static constexpr uint8_t CmdSyncHeartRate    = 0x6B;
+    static constexpr uint8_t CmdSyncSpo2         = 0x70;
 
     static ProtocolVersion detectFromManufacturer(const QString &manufacturerName);
     static ProtocolVersion resolveVersion(ProtocolVersion detected, ProtocolPreference pref);
@@ -85,6 +108,13 @@ public:
                                          const QString &body,
                                          int maxUtf8Bytes = 128);
     static QByteArray encodeFindWatch(ProtocolVersion version);
+    static QByteArray encodeSyncActivity(ProtocolVersion version, uint8_t dayOffset = 0);
+    static QByteArray encodeSyncHeartRate(ProtocolVersion version);
+    static QByteArray encodeSyncSpo2(ProtocolVersion version);
+
+    static ParsedHealthPacket parseFeeaHealthResponse(const QByteArray &frame);
+    static int parseStandardHeartRate(const QByteArray &value);
+    static int parseStandardSpo2(const QByteArray &value);
 
     static QList<QByteArray> chunkPacket(const QByteArray &packet, int mtuSize = 20);
     static QString toHexString(const QByteArray &bytes);

@@ -1,8 +1,13 @@
 import {
+  FEEA_CMD,
   GATT_UUIDS,
   bytesToHex,
   chunkPacket,
   detectProtocolFromManufacturer,
+  framePacket,
+  parseFeeaHealthResponse,
+  parseStandardHeartRate,
+  parseStandardSpo2,
   type ProtocolVersion,
 } from './feeaCodec';
 
@@ -74,10 +79,14 @@ export class WebBleWatchSession {
   private batteryChar: WebBleCharacteristic | null = null;
   private alertLevelChar: WebBleCharacteristic | null = null;
   private virtual = false;
+  private virtualSyncCount = 0;
 
   onDisconnected?: () => void;
   onBatteryChanged?: (level: number) => void;
   onDataReceived?: (hex: string) => void;
+  onActivityDataReceived?: (dayOffset: number, steps: number, distanceMeters: number) => void;
+  onHeartRateReceived?: (bpm: number) => void;
+  onSpo2Received?: (spo2: number) => void;
 
   get isVirtual(): boolean {
     return this.virtual;
@@ -127,6 +136,8 @@ export class WebBleWatchSession {
       GATT_UUIDS.SERVICE_BATTERY,
       GATT_UUIDS.SERVICE_DEVICE_INFO,
       GATT_UUIDS.SERVICE_IMMEDIATE_ALERT,
+      GATT_UUIDS.SERVICE_HEART_RATE,
+      GATT_UUIDS.SERVICE_PULSE_OXIMETER,
     ];
 
     const requestOptions = showAllDevices
@@ -178,6 +189,7 @@ export class WebBleWatchSession {
             if (target?.value) {
               const bytes = new Uint8Array(target.value.buffer, target.value.byteOffset, target.value.byteLength);
               this.onDataReceived?.(bytesToHex(bytes));
+              this.dispatchFeeaHealthFrame(bytes);
             }
           });
         } catch {
@@ -247,6 +259,55 @@ export class WebBleWatchSession {
       // Optional
     }
 
+    // 5. Optional standard Heart Rate Service (0x180D)
+    try {
+      const hrSvc = await gatt.getPrimaryService(GATT_UUIDS.SERVICE_HEART_RATE);
+      const hrChar = await hrSvc.getCharacteristic(GATT_UUIDS.CHAR_HEART_RATE_MEASUREMENT);
+      if (hrChar.properties.notify) {
+        await hrChar.startNotifications();
+        hrChar.addEventListener('characteristicvaluechanged', (ev: Event) => {
+          const target = ev.target as unknown as { value?: DataView };
+          if (target?.value) {
+            const bytes = new Uint8Array(target.value.buffer, target.value.byteOffset, target.value.byteLength);
+            const bpm = parseStandardHeartRate(bytes);
+            if (bpm !== null) {
+              this.onHeartRateReceived?.(bpm);
+            }
+          }
+        });
+      }
+    } catch {
+      // Optional on watches that report HR strictly over 0xFEE3
+    }
+
+    // 6. Optional standard Pulse Oximeter Service (0x1822)
+    try {
+      const plxSvc = await gatt.getPrimaryService(GATT_UUIDS.SERVICE_PULSE_OXIMETER);
+      const plxUuids = [GATT_UUIDS.CHAR_PLX_CONTINUOUS, GATT_UUIDS.CHAR_PLX_SPOT_CHECK];
+      for (const uuid of plxUuids) {
+        try {
+          const plxChar = await plxSvc.getCharacteristic(uuid);
+          if (plxChar.properties.notify) {
+            await plxChar.startNotifications();
+            plxChar.addEventListener('characteristicvaluechanged', (ev: Event) => {
+              const target = ev.target as unknown as { value?: DataView };
+              if (target?.value) {
+                const bytes = new Uint8Array(target.value.buffer, target.value.byteOffset, target.value.byteLength);
+                const spo2 = parseStandardSpo2(bytes);
+                if (spo2 !== null) {
+                  this.onSpo2Received?.(spo2);
+                }
+              }
+            });
+          }
+        } catch {
+          // Try next characteristic
+        }
+      }
+    } catch {
+      // Optional on watches that report SpO2 strictly over 0xFEE3
+    }
+
     return {
       deviceName: device.name || 'BLE Watch',
       deviceId: device.id,
@@ -265,8 +326,35 @@ export class WebBleWatchSession {
     const chunks = chunkPacket(packet, mtuSize);
 
     if (this.virtual) {
-      await new Promise((resolve) => setTimeout(resolve, Math.min(180, writeDelayMs)));
-      const ack = new Uint8Array([0xfe, 0xea, 0x06, 0x00, packet[4] ?? 0x00, 0x01]);
+      await new Promise((resolve) => setTimeout(resolve, Math.min(140, writeDelayMs)));
+      const cmd = packet[4] ?? 0x00;
+      const version: 'v1' | 'v2' = packet[2] === 0x10 ? 'v1' : 'v2';
+
+      if (cmd === FEEA_CMD.SYNC_ACTIVITY) {
+        const dayOffset = packet[5] ?? 0;
+        const responseFrame = this.buildVirtualActivityFrame(version, dayOffset);
+        this.dispatchFeeaHealthFrame(responseFrame);
+        return { chunks: chunks.length, ackHex: bytesToHex(responseFrame) };
+      }
+
+      if (cmd === FEEA_CMD.SYNC_HEART_RATE) {
+        this.virtualSyncCount += 1;
+        const hrSeries = [72, 74, 69, 76, 71, 68, 75, 73];
+        const bpm = hrSeries[this.virtualSyncCount % hrSeries.length];
+        const responseFrame = framePacket(version, FEEA_CMD.SYNC_HEART_RATE, new Uint8Array([bpm]));
+        this.dispatchFeeaHealthFrame(responseFrame);
+        return { chunks: chunks.length, ackHex: bytesToHex(responseFrame) };
+      }
+
+      if (cmd === FEEA_CMD.SYNC_SPO2) {
+        const spo2Series = [98, 99, 97, 98, 99, 98, 97, 98];
+        const spo2 = spo2Series[this.virtualSyncCount % spo2Series.length];
+        const responseFrame = framePacket(version, FEEA_CMD.SYNC_SPO2, new Uint8Array([spo2]));
+        this.dispatchFeeaHealthFrame(responseFrame);
+        return { chunks: chunks.length, ackHex: bytesToHex(responseFrame) };
+      }
+
+      const ack = new Uint8Array([0xfe, 0xea, 0x06, 0x00, cmd, 0x01]);
       return { chunks: chunks.length, ackHex: bytesToHex(ack) };
     }
 
@@ -314,6 +402,38 @@ export class WebBleWatchSession {
       this.gatt.disconnect();
     }
     this.cleanupHandles();
+  }
+
+  private dispatchFeeaHealthFrame(bytes: Uint8Array): void {
+    const parsed = parseFeeaHealthResponse(bytes);
+    if (parsed.type === 'activity') {
+      this.onActivityDataReceived?.(parsed.dayOffset, parsed.steps, parsed.distanceMeters);
+    } else if (parsed.type === 'heartRate') {
+      this.onHeartRateReceived?.(parsed.heartRateBpm);
+    } else if (parsed.type === 'spo2') {
+      this.onSpo2Received?.(parsed.spo2Percent);
+    }
+  }
+
+  private buildVirtualActivityFrame(version: 'v1' | 'v2', dayOffset: number): Uint8Array {
+    // Realistic 7-day walking profile in steps + meters; today increments slightly per refresh
+    const baseSteps = [7840, 6210, 8950, 5120, 7430, 9380, 4680];
+    const baseMeters = [5820, 4610, 6680, 3810, 5510, 6990, 3480];
+    const idx = Math.max(0, Math.min(6, dayOffset));
+    const bump = idx === 0 ? this.virtualSyncCount * 145 : 0;
+    const steps = baseSteps[idx] + bump;
+    const meters = baseMeters[idx] + Math.round(bump * 0.74);
+
+    const payload = new Uint8Array([
+      idx & 0xff,
+      (steps >> 16) & 0xff,
+      (steps >> 8) & 0xff,
+      steps & 0xff,
+      (meters >> 16) & 0xff,
+      (meters >> 8) & 0xff,
+      meters & 0xff,
+    ]);
+    return framePacket(version, FEEA_CMD.SYNC_ACTIVITY, payload);
   }
 
   private cleanupHandles(): void {

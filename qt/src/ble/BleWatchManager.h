@@ -37,6 +37,10 @@ public:
     ~BleWatchManager() override;
 
     ConnectionState state() const { return m_state; }
+    bool bluetoothAvailable() const { return m_bluetoothAvailable; }
+    QString bluetoothStatusMessage() const { return m_bluetoothStatusMessage; }
+    bool checkBluetoothAvailability();
+
     bool showAllDevices() const { return m_showAllDevices; }
     void setShowAllDevices(bool showAll);
 
@@ -66,14 +70,19 @@ public:
     bool sendNotification(WatchAppIcon icon, const QString &title, const QString &body);
     bool sendFindWatch();
     void refreshBattery();
+    bool requestHealthSync();
 
 signals:
     void stateChanged(ConnectionState state);
+    void bluetoothAvailabilityChanged();
     void discoveredDevicesChanged();
     void connectedDeviceChanged();
     void batteryLevelChanged(int level);
     void deviceInfoChanged();
     void protocolChanged();
+    void activityDataReceived(int dayOffset, int steps, int distanceMeters);
+    void heartRateReceived(int bpm);
+    void spo2Received(int percent);
     void packetLogged(const QString &direction,
                       const QString &actionLabel,
                       const QString &protocolLabel,
@@ -97,6 +106,8 @@ private slots:
     void onBatteryServiceStateChanged(QLowEnergyService::ServiceState newState);
     void onDeviceInfoServiceStateChanged(QLowEnergyService::ServiceState newState);
     void onImmediateAlertServiceStateChanged(QLowEnergyService::ServiceState newState);
+    void onHeartRateServiceStateChanged(QLowEnergyService::ServiceState newState);
+    void onPulseOximeterServiceStateChanged(QLowEnergyService::ServiceState newState);
 
     void onCharacteristicChanged(const QLowEnergyCharacteristic &characteristic, const QByteArray &value);
     void onCharacteristicRead(const QLowEnergyCharacteristic &characteristic, const QByteArray &value);
@@ -105,6 +116,7 @@ private slots:
 
 private:
     void setState(ConnectionState newState);
+    void ensureDiscoveryAgent();
     void ensureBluetoothPermissionsAndScan();
     void beginScanInternal();
     void cleanupConnection();
@@ -113,6 +125,8 @@ private:
     static QString deviceIdentifier(const QBluetoothDeviceInfo &info);
 
     ConnectionState m_state = ConnectionState::Disconnected;
+    bool m_bluetoothAvailable = false;
+    QString m_bluetoothStatusMessage;
     bool m_showAllDevices = false;
 
     ProtocolVersion m_detectedProtocol = ProtocolVersion::Unknown;
@@ -129,11 +143,15 @@ private:
     QLowEnergyService *m_batteryService = nullptr;
     QLowEnergyService *m_deviceInfoService = nullptr;
     QLowEnergyService *m_immediateAlertService = nullptr;
+    QLowEnergyService *m_heartRateService = nullptr;
+    QLowEnergyService *m_pulseOximeterService = nullptr;
 
     QLowEnergyCharacteristic m_dataOutChar;
     QLowEnergyCharacteristic m_dataInChar;
     QLowEnergyCharacteristic m_batteryChar;
     QLowEnergyCharacteristic m_alertLevelChar;
+    QLowEnergyCharacteristic m_heartRateChar;
+    QLowEnergyCharacteristic m_spo2Char;
 
     QString m_deviceName;
     QString m_deviceAddress;

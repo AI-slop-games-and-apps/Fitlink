@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Bell, Bluetooth, Clock, Cpu, LayoutDashboard, Unplug } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Activity, Bell, Bluetooth, Clock, Cpu, LayoutDashboard, Unplug } from 'lucide-react';
+import { ActivityView } from './components/ActivityView';
 import { ConnectDialog } from './components/ConnectDialog';
 import { DeviceProtocolView } from './components/DeviceProtocolView';
 import { NotificationsView } from './components/NotificationsView';
@@ -9,6 +10,9 @@ import {
   bytesToHex,
   encodeFindWatch,
   encodeNotification,
+  encodeSyncActivity,
+  encodeSyncHeartRate,
+  encodeSyncSpo2,
   encodeSyncTime,
   encodeTimeFormat,
   formatProtocolLabel,
@@ -17,13 +21,16 @@ import {
 } from './protocol/feeaCodec';
 import { WebBleWatchSession } from './protocol/watchController';
 import type {
+  ActivityState,
   AppMirrorRule,
+  DailyActivityRecord,
   NavTab,
   NotificationTemplate,
   PacketLogEntry,
   ScheduledAlert,
   WatchAlertBanner,
   WatchRuntimeState,
+  WeeklyActivityDay,
 } from './types/fitlink';
 
 const STORAGE_KEY = 'fitlink.state.v1';
@@ -52,6 +59,19 @@ const DEFAULT_TEMPLATES: NotificationTemplate[] = [
   },
 ];
 
+const DEFAULT_ACTIVITY_STATE: ActivityState = {
+  distanceUnit: 'km',
+  dailyDistanceGoalMeters: 5000,
+  dailyByDate: {},
+  latestHeartRate: null,
+  heartRateUpdatedAt: null,
+  heartRateSamples: [],
+  latestSpo2: null,
+  spo2UpdatedAt: null,
+  spo2Samples: [],
+  lastActivitySyncedAt: null,
+};
+
 interface PersistedConfig {
   use24Hour: boolean;
   autoSyncOnConnect: boolean;
@@ -62,6 +82,7 @@ interface PersistedConfig {
   appFilters: AppMirrorRule[];
   templates: NotificationTemplate[];
   scheduledAlerts: ScheduledAlert[];
+  activityState: ActivityState;
 }
 
 function loadPersisted(): PersistedConfig {
@@ -69,6 +90,7 @@ function loadPersisted(): PersistedConfig {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<PersistedConfig>;
+      const rawAct = parsed.activityState;
       return {
         use24Hour: parsed.use24Hour ?? true,
         autoSyncOnConnect: parsed.autoSyncOnConnect ?? true,
@@ -79,6 +101,29 @@ function loadPersisted(): PersistedConfig {
         appFilters: parsed.appFilters?.length ? parsed.appFilters : DEFAULT_APP_FILTERS,
         templates: parsed.templates ?? DEFAULT_TEMPLATES,
         scheduledAlerts: parsed.scheduledAlerts ?? [],
+        activityState: rawAct
+          ? {
+              distanceUnit: rawAct.distanceUnit === 'mi' ? 'mi' : 'km',
+              dailyDistanceGoalMeters:
+                typeof rawAct.dailyDistanceGoalMeters === 'number' &&
+                rawAct.dailyDistanceGoalMeters >= 1000
+                  ? rawAct.dailyDistanceGoalMeters
+                  : 5000,
+              dailyByDate: rawAct.dailyByDate ?? {},
+              latestHeartRate:
+                typeof rawAct.latestHeartRate === 'number' ? rawAct.latestHeartRate : null,
+              heartRateUpdatedAt: rawAct.heartRateUpdatedAt ?? null,
+              heartRateSamples: Array.isArray(rawAct.heartRateSamples)
+                ? rawAct.heartRateSamples.slice(-12)
+                : [],
+              latestSpo2: typeof rawAct.latestSpo2 === 'number' ? rawAct.latestSpo2 : null,
+              spo2UpdatedAt: rawAct.spo2UpdatedAt ?? null,
+              spo2Samples: Array.isArray(rawAct.spo2Samples)
+                ? rawAct.spo2Samples.slice(-12)
+                : [],
+              lastActivitySyncedAt: rawAct.lastActivitySyncedAt ?? null,
+            }
+          : DEFAULT_ACTIVITY_STATE,
       };
     }
   } catch {
@@ -94,7 +139,61 @@ function loadPersisted(): PersistedConfig {
     appFilters: DEFAULT_APP_FILTERS,
     templates: DEFAULT_TEMPLATES,
     scheduledAlerts: [],
+    activityState: DEFAULT_ACTIVITY_STATE,
   };
+}
+
+function getLocalDateKey(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function dateOffsetFromToday(dayOffset: number): Date {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - Math.max(0, Math.min(6, dayOffset)));
+  return d;
+}
+
+const WEEKDAY_SHORT = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const WEEKDAY_FULL = [
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+  'Sunday',
+];
+
+function buildCurrentWeekDays(
+  dailyByDate: Record<string, DailyActivityRecord>
+): WeeklyActivityDay[] {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayKey = getLocalDateKey(today);
+  // Monday-based index (0 = Mon ... 6 = Sun)
+  const mondayOffset = (today.getDay() + 6) % 7;
+  const monday = new Date(today);
+  monday.setDate(today.getDate() - mondayOffset);
+
+  return Array.from({ length: 7 }).map((_, idx) => {
+    const dayDate = new Date(monday);
+    dayDate.setDate(monday.getDate() + idx);
+    const key = getLocalDateKey(dayDate);
+    const rec = dailyByDate[key];
+    return {
+      dateKey: key,
+      dayShort: WEEKDAY_SHORT[idx],
+      dayFull: WEEKDAY_FULL[idx],
+      dateLabel: dayDate.toLocaleDateString([], { month: 'short', day: 'numeric' }),
+      steps: rec?.steps ?? 0,
+      distanceMeters: rec?.distanceMeters ?? 0,
+      isToday: key === todayKey,
+    };
+  });
 }
 
 function formatNowTime(): string {
@@ -102,6 +201,14 @@ function formatNowTime(): string {
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
+    hour12: false,
+  });
+}
+
+function formatShortTime(): string {
+  return new Date().toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
     hour12: false,
   });
 }
@@ -122,6 +229,7 @@ function computeNextRunMs(mode: 'once' | 'interval', targetHHMM: string, interva
 
 const NAV_ITEMS: Array<{ id: NavTab; label: string; shortLabel: string; icon: typeof LayoutDashboard }> = [
   { id: 'overview', label: 'Overview', shortLabel: 'Overview', icon: LayoutDashboard },
+  { id: 'activity', label: 'Activity', shortLabel: 'Activity', icon: Activity },
   { id: 'time', label: 'Time Sync', shortLabel: 'Time', icon: Clock },
   { id: 'notifications', label: 'Notifications', shortLabel: 'Alerts', icon: Bell },
   { id: 'device', label: 'Device & Protocol', shortLabel: 'Device', icon: Cpu },
@@ -164,6 +272,8 @@ export default function App() {
   const [templates, setTemplates] = useState<NotificationTemplate[]>(initial.templates);
   const [scheduledAlerts, setScheduledAlerts] = useState<ScheduledAlert[]>(initial.scheduledAlerts);
   const [packetLog, setPacketLog] = useState<PacketLogEntry[]>([]);
+  const [activityState, setActivityState] = useState<ActivityState>(initial.activityState);
+  const [isSyncingActivity, setIsSyncingActivity] = useState(false);
 
   const [isVibrating, setIsVibrating] = useState(false);
   const [activeWatchBanner, setActiveWatchBanner] = useState<WatchAlertBanner | null>(null);
@@ -179,7 +289,7 @@ export default function App() {
     return () => window.clearTimeout(id);
   }, [toast]);
 
-  // Persist user preferences, templates, app filters, and scheduled alerts locally
+  // Persist user preferences, templates, app filters, scheduled alerts, and activity state locally
   useEffect(() => {
     const payload: PersistedConfig = {
       use24Hour,
@@ -191,6 +301,7 @@ export default function App() {
       appFilters,
       templates,
       scheduledAlerts,
+      activityState,
     };
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
@@ -207,6 +318,7 @@ export default function App() {
     appFilters,
     templates,
     scheduledAlerts,
+    activityState,
   ]);
 
   const appendLog = useCallback(
@@ -256,6 +368,37 @@ export default function App() {
         chunkCount: 1,
         status: 'ack',
       });
+    };
+    session.onActivityDataReceived = (dayOffset, steps, distanceMeters) => {
+      const targetKey = getLocalDateKey(dateOffsetFromToday(dayOffset));
+      setActivityState((prev) => ({
+        ...prev,
+        dailyByDate: {
+          ...prev.dailyByDate,
+          [targetKey]: { steps, distanceMeters },
+        },
+        lastActivitySyncedAt: formatShortTime(),
+      }));
+    };
+    session.onHeartRateReceived = (bpm) => {
+      const stamped = formatShortTime();
+      setActivityState((prev) => ({
+        ...prev,
+        latestHeartRate: bpm,
+        heartRateUpdatedAt: stamped,
+        heartRateSamples: [...prev.heartRateSamples, bpm].slice(-12),
+        lastActivitySyncedAt: stamped,
+      }));
+    };
+    session.onSpo2Received = (spo2) => {
+      const stamped = formatShortTime();
+      setActivityState((prev) => ({
+        ...prev,
+        latestSpo2: spo2,
+        spo2UpdatedAt: stamped,
+        spo2Samples: [...prev.spo2Samples, spo2].slice(-12),
+        lastActivitySyncedAt: stamped,
+      }));
     };
   }, [appendLog, showToast]);
 
@@ -339,6 +482,43 @@ export default function App() {
     [showToast, transmitPacket, use24Hour, watch.detectedProtocol, watch.protocolPreference]
   );
 
+  const handleRefreshActivity = useCallback(
+    async (protoOverride?: 'v1' | 'v2', silent = false) => {
+      const resolved =
+        protoOverride ??
+        resolveProtocolVersion(watch.detectedProtocol, watch.protocolPreference);
+      setIsSyncingActivity(true);
+      try {
+        // Sync today (offset 0) plus earlier days of the current Mon–Sun week
+        const today = new Date();
+        const daysSinceMonday = (today.getDay() + 6) % 7;
+        for (let offset = 0; offset <= daysSinceMonday; offset += 1) {
+          const ok = await transmitPacket(
+            offset === 0 ? 'Sync Today Activity (0x51)' : `Sync Activity -${offset}d (0x51)`,
+            encodeSyncActivity(resolved, offset),
+            resolved
+          );
+          if (!ok) {
+            return;
+          }
+        }
+        await transmitPacket('Sync Heart Rate (0x6B)', encodeSyncHeartRate(resolved), resolved);
+        await transmitPacket('Sync SpO2 (0x70)', encodeSyncSpo2(resolved), resolved);
+
+        setActivityState((prev) => ({
+          ...prev,
+          lastActivitySyncedAt: formatShortTime(),
+        }));
+        if (!silent) {
+          showToast('Activity & vitals refreshed from watch');
+        }
+      } finally {
+        setIsSyncingActivity(false);
+      }
+    },
+    [showToast, transmitPacket, watch.detectedProtocol, watch.protocolPreference]
+  );
+
   const finalizeConnection = useCallback(
     async (result: Awaited<ReturnType<WebBleWatchSession['connectVirtual']>>) => {
       const resolved = resolveProtocolVersion(result.detectedProtocol, watch.protocolPreference);
@@ -368,8 +548,20 @@ export default function App() {
           void handleSyncTime(undefined, undefined, resolved);
         }, 350);
       }
+
+      // Automatically sync daily activity, weekly distance, heart rate, and SpO2 on connect
+      window.setTimeout(() => {
+        void handleRefreshActivity(resolved, true);
+      }, autoSyncOnConnect ? 950 : 350);
     },
-    [appendLog, autoSyncOnConnect, handleSyncTime, showToast, watch.protocolPreference]
+    [
+      appendLog,
+      autoSyncOnConnect,
+      handleRefreshActivity,
+      handleSyncTime,
+      showToast,
+      watch.protocolPreference,
+    ]
   );
 
   const handlePairWebBluetooth = async () => {
@@ -525,6 +717,15 @@ export default function App() {
       })
     : 'Never synced';
 
+  const weeklyDays = useMemo(
+    () => buildCurrentWeekDays(activityState.dailyByDate),
+    [activityState.dailyByDate]
+  );
+  const todayKey = getLocalDateKey(new Date());
+  const todayRecord = activityState.dailyByDate[todayKey];
+  const todaySteps = todayRecord ? todayRecord.steps : null;
+  const todayDistanceMeters = todayRecord ? todayRecord.distanceMeters : null;
+
   const currentNavMeta = NAV_ITEMS.find((n) => n.id === activeTab)!;
 
   return (
@@ -629,6 +830,24 @@ export default function App() {
               onFindWatch={() => void handleFindWatch()}
               onRefreshBattery={() => void handleRefreshBattery()}
               onNavigate={(tab) => setActiveTab(tab)}
+            />
+          )}
+
+          {activeTab === 'activity' && (
+            <ActivityView
+              isConnected={watch.isConnected}
+              isSyncing={isSyncingActivity}
+              activity={activityState}
+              weeklyDays={weeklyDays}
+              todaySteps={todaySteps}
+              todayDistanceMeters={todayDistanceMeters}
+              onRefresh={() => void handleRefreshActivity()}
+              onChangeUnit={(distanceUnit) =>
+                setActivityState((prev) => ({ ...prev, distanceUnit }))
+              }
+              onChangeDailyGoalMeters={(dailyDistanceGoalMeters) =>
+                setActivityState((prev) => ({ ...prev, dailyDistanceGoalMeters }))
+              }
             />
           )}
 
@@ -756,7 +975,7 @@ export default function App() {
       {/* Compact Mobile Bottom Navigation Bar (Android form factor) */}
       <nav
         aria-label="Mobile navigation"
-        className="fixed inset-x-0 bottom-0 z-30 grid h-16 grid-cols-4 border-t border-[#E2E8F0] bg-white md:hidden"
+        className="fixed inset-x-0 bottom-0 z-30 grid h-16 grid-cols-5 border-t border-[#E2E8F0] bg-white md:hidden"
       >
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon;

@@ -33,11 +33,15 @@ AppController::AppController(QObject *parent)
 #endif
 
     connect(m_ble, &BleWatchManager::stateChanged, this, &AppController::onBleStateChanged);
+    connect(m_ble, &BleWatchManager::bluetoothAvailabilityChanged, this, &AppController::bluetoothAvailabilityChanged);
     connect(m_ble, &BleWatchManager::discoveredDevicesChanged, this, &AppController::discoveredDevicesChanged);
     connect(m_ble, &BleWatchManager::connectedDeviceChanged, this, &AppController::deviceChanged);
     connect(m_ble, &BleWatchManager::batteryLevelChanged, this, &AppController::batteryChanged);
     connect(m_ble, &BleWatchManager::deviceInfoChanged, this, &AppController::deviceInfoChanged);
     connect(m_ble, &BleWatchManager::protocolChanged, this, &AppController::protocolChanged);
+    connect(m_ble, &BleWatchManager::activityDataReceived, this, &AppController::onActivityDataReceived);
+    connect(m_ble, &BleWatchManager::heartRateReceived, this, &AppController::onHeartRateReceived);
+    connect(m_ble, &BleWatchManager::spo2Received, this, &AppController::onSpo2Received);
     connect(m_ble, &BleWatchManager::packetLogged, this, &AppController::onPacketLogged);
     connect(m_ble, &BleWatchManager::errorOccurred, this, [this](const QString &msg) {
         emit toastMessage(msg, true);
@@ -67,6 +71,14 @@ QString AppController::connectionStateText() const {
     case BleWatchManager::ConnectionState::Connected: return tr("Connected");
     default: return tr("Disconnected");
     }
+}
+
+bool AppController::bluetoothAvailable() const {
+    return m_ble->bluetoothAvailable();
+}
+
+QString AppController::bluetoothStatusMessage() const {
+    return m_ble->bluetoothStatusMessage();
 }
 
 bool AppController::isConnected() const {
@@ -157,6 +169,11 @@ bool AppController::osMirroringEnabled() const { return m_osBridge->isEnabled();
 void AppController::setOsMirroringEnabled(bool enabled) {
     m_osBridge->setEnabled(enabled);
     savePersistedState();
+}
+
+void AppController::recheckBluetoothAvailability() {
+    const bool ok = m_ble->checkBluetoothAvailability();
+    emit toastMessage(m_ble->bluetoothStatusMessage(), !ok);
 }
 
 void AppController::startScan() { m_ble->startScan(); }
@@ -354,10 +371,183 @@ void AppController::clearPacketLog() {
     emit packetLogChanged();
 }
 
+void AppController::setDistanceUnit(const QString &unit) {
+    const QString normalized = (unit == QStringLiteral("mi")) ? QStringLiteral("mi") : QStringLiteral("km");
+    if (m_distanceUnit == normalized) {
+        return;
+    }
+    m_distanceUnit = normalized;
+    emit activityChanged();
+    savePersistedState();
+}
+
+void AppController::setDailyDistanceGoalMeters(int meters) {
+    const int clamped = std::clamp(meters, 1000, 50000);
+    if (m_dailyDistanceGoalMeters == clamped) {
+        return;
+    }
+    m_dailyDistanceGoalMeters = clamped;
+    emit activityChanged();
+    savePersistedState();
+}
+
+int AppController::todaySteps() const {
+    const QString key = QDate::currentDate().toString(Qt::ISODate);
+    if (!m_dailyActivityByDate.contains(key)) {
+        return -1;
+    }
+    return m_dailyActivityByDate.value(key).toMap().value(QStringLiteral("steps"), 0).toInt();
+}
+
+int AppController::todayDistanceMeters() const {
+    const QString key = QDate::currentDate().toString(Qt::ISODate);
+    if (!m_dailyActivityByDate.contains(key)) {
+        return -1;
+    }
+    return m_dailyActivityByDate.value(key).toMap().value(QStringLiteral("distanceMeters"), 0).toInt();
+}
+
+QVariantList AppController::weeklyActivity() const {
+    const QDate today = QDate::currentDate();
+    const int daysSinceMonday = today.dayOfWeek() - 1; // Qt::Monday == 1
+    const QDate monday = today.addDays(-daysSinceMonday);
+
+    static const char *shortNames[7] = { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" };
+    static const char *fullNames[7] = { "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday" };
+
+    QVariantList result;
+    for (int i = 0; i < 7; ++i) {
+        const QDate day = monday.addDays(i);
+        const QString key = day.toString(Qt::ISODate);
+        const bool hasData = m_dailyActivityByDate.contains(key);
+        const QVariantMap stored = m_dailyActivityByDate.value(key).toMap();
+
+        QVariantMap row;
+        row[QStringLiteral("dateKey")] = key;
+        row[QStringLiteral("dayShort")] = QString::fromLatin1(shortNames[i]);
+        row[QStringLiteral("dayFull")] = QString::fromLatin1(fullNames[i]);
+        row[QStringLiteral("dateLabel")] = day.toString(QStringLiteral("MMM d"));
+        row[QStringLiteral("isToday")] = (day == today);
+        row[QStringLiteral("hasData")] = hasData;
+        row[QStringLiteral("steps")] = hasData ? stored.value(QStringLiteral("steps"), 0).toInt() : 0;
+        row[QStringLiteral("distanceMeters")] = hasData ? stored.value(QStringLiteral("distanceMeters"), 0).toInt() : 0;
+        result.append(row);
+    }
+    return result;
+}
+
+QString AppController::heartRateUpdatedAt() const {
+    return m_heartRateUpdatedAt.isValid()
+        ? m_heartRateUpdatedAt.toString(m_use24Hour ? QStringLiteral("HH:mm") : QStringLiteral("hh:mm AP"))
+        : tr("No reading");
+}
+
+QString AppController::spo2UpdatedAt() const {
+    return m_spo2UpdatedAt.isValid()
+        ? m_spo2UpdatedAt.toString(m_use24Hour ? QStringLiteral("HH:mm") : QStringLiteral("hh:mm AP"))
+        : tr("No reading");
+}
+
+QString AppController::lastActivitySyncText() const {
+    return m_lastActivitySyncedAt.isValid()
+        ? tr("Synced %1").arg(m_lastActivitySyncedAt.toString(m_use24Hour ? QStringLiteral("HH:mm:ss") : QStringLiteral("hh:mm:ss AP")))
+        : tr("Not synced yet");
+}
+
+QString AppController::formatDistance(int meters) const {
+    const double km = static_cast<double>(std::max(0, meters)) / 1000.0;
+    const double val = (m_distanceUnit == QStringLiteral("mi")) ? (km * 0.621371) : km;
+    return QString::number(val, 'f', 2);
+}
+
+QString AppController::formatDistanceWithUnit(int meters) const {
+    return QStringLiteral("%1 %2").arg(formatDistance(meters), m_distanceUnit);
+}
+
+void AppController::refreshActivity() {
+    if (!isConnected()) {
+        emit toastMessage(tr("Connect a watch before refreshing activity data"), true);
+        return;
+    }
+    m_isSyncingActivity = true;
+    emit activityChanged();
+    if (m_ble->requestHealthSync()) {
+        m_lastActivitySyncedAt = QDateTime::currentDateTime();
+        emit toastMessage(tr("Activity sync requested from watch"), false);
+    }
+    QTimer::singleShot(900, this, [this]() {
+        m_isSyncingActivity = false;
+        emit activityChanged();
+    });
+}
+
 void AppController::onBleStateChanged(BleWatchManager::ConnectionState state) {
     emit connectionStateChanged();
-    if (state == BleWatchManager::ConnectionState::Connected && m_autoSyncOnConnect) {
-        QTimer::singleShot(600, this, &AppController::syncTimeNow);
+    if (state == BleWatchManager::ConnectionState::Connected) {
+        if (m_autoSyncOnConnect) {
+            QTimer::singleShot(600, this, &AppController::syncTimeNow);
+        }
+        QTimer::singleShot(1150, this, [this]() {
+            if (isConnected()) {
+                m_ble->requestHealthSync();
+                m_lastActivitySyncedAt = QDateTime::currentDateTime();
+                emit activityChanged();
+            }
+        });
+    }
+}
+
+void AppController::onActivityDataReceived(int dayOffset, int steps, int distanceMeters) {
+    const QDate targetDate = QDate::currentDate().addDays(-std::clamp(dayOffset, 0, 6));
+    const QString key = targetDate.toString(Qt::ISODate);
+    QVariantMap entry;
+    entry[QStringLiteral("steps")] = std::max(0, steps);
+    entry[QStringLiteral("distanceMeters")] = std::max(0, distanceMeters);
+    m_dailyActivityByDate[key] = entry;
+    m_lastActivitySyncedAt = QDateTime::currentDateTime();
+    emit activityChanged();
+    savePersistedState();
+}
+
+void AppController::onHeartRateReceived(int bpm) {
+    if (bpm < 30 || bpm > 220) {
+        return;
+    }
+    m_latestHeartRate = bpm;
+    m_heartRateUpdatedAt = QDateTime::currentDateTime();
+    m_heartRateSamples.append(bpm);
+    while (m_heartRateSamples.size() > 12) {
+        m_heartRateSamples.removeFirst();
+    }
+    m_lastActivitySyncedAt = m_heartRateUpdatedAt;
+    emit activityChanged();
+    savePersistedState();
+}
+
+void AppController::onSpo2Received(int percent) {
+    if (percent < 70 || percent > 100) {
+        return;
+    }
+    m_latestSpo2 = percent;
+    m_spo2UpdatedAt = QDateTime::currentDateTime();
+    m_spo2Samples.append(percent);
+    while (m_spo2Samples.size() > 12) {
+        m_spo2Samples.removeFirst();
+    }
+    m_lastActivitySyncedAt = m_spo2UpdatedAt;
+    emit activityChanged();
+    savePersistedState();
+}
+
+void AppController::ensureCurrentWeekBuckets() {
+    // Prune activity history older than 14 days to keep persisted JSON compact
+    const QDate cutoff = QDate::currentDate().addDays(-14);
+    const QStringList keys = m_dailyActivityByDate.keys();
+    for (const QString &k : keys) {
+        const QDate d = QDate::fromString(k, Qt::ISODate);
+        if (!d.isValid() || d < cutoff) {
+            m_dailyActivityByDate.remove(k);
+        }
     }
 }
 
@@ -496,6 +686,11 @@ void AppController::loadPersistedState() {
     QSettings settings;
     m_use24Hour = settings.value(QStringLiteral("time/use24Hour"), true).toBool();
     m_autoSyncOnConnect = settings.value(QStringLiteral("time/autoSyncOnConnect"), true).toBool();
+    m_distanceUnit = settings.value(QStringLiteral("activity/distanceUnit"), QStringLiteral("km")).toString();
+    if (m_distanceUnit != QStringLiteral("mi")) {
+        m_distanceUnit = QStringLiteral("km");
+    }
+    m_dailyDistanceGoalMeters = std::clamp(settings.value(QStringLiteral("activity/goalMeters"), 5000).toInt(), 1000, 50000);
     m_ble->setProtocolPreference(static_cast<ProtocolPreference>(settings.value(QStringLiteral("protocol/pref"), 0).toInt()));
     m_ble->setMtuSize(settings.value(QStringLiteral("protocol/mtu"), 20).toInt());
     m_ble->setWriteDelayMs(settings.value(QStringLiteral("protocol/delayMs"), 50).toInt());
@@ -506,7 +701,16 @@ void AppController::loadPersistedState() {
         m_appFilters = root.value(QStringLiteral("appFilters")).toArray().toVariantList();
         m_templates = root.value(QStringLiteral("templates")).toArray().toVariantList();
         m_scheduledAlerts = root.value(QStringLiteral("scheduledAlerts")).toArray().toVariantList();
+        m_dailyActivityByDate = root.value(QStringLiteral("dailyActivity")).toObject().toVariantMap();
+        m_latestHeartRate = root.value(QStringLiteral("latestHeartRate")).toInt(-1);
+        m_heartRateUpdatedAt = QDateTime::fromString(root.value(QStringLiteral("heartRateUpdatedAt")).toString(), Qt::ISODate);
+        m_heartRateSamples = root.value(QStringLiteral("heartRateSamples")).toArray().toVariantList();
+        m_latestSpo2 = root.value(QStringLiteral("latestSpo2")).toInt(-1);
+        m_spo2UpdatedAt = QDateTime::fromString(root.value(QStringLiteral("spo2UpdatedAt")).toString(), Qt::ISODate);
+        m_spo2Samples = root.value(QStringLiteral("spo2Samples")).toArray().toVariantList();
+        m_lastActivitySyncedAt = QDateTime::fromString(root.value(QStringLiteral("lastActivitySyncedAt")).toString(), Qt::ISODate);
     }
+    ensureCurrentWeekBuckets();
     seedDefaultFiltersAndTemplates();
 }
 
@@ -514,6 +718,8 @@ void AppController::savePersistedState() const {
     QSettings settings;
     settings.setValue(QStringLiteral("time/use24Hour"), m_use24Hour);
     settings.setValue(QStringLiteral("time/autoSyncOnConnect"), m_autoSyncOnConnect);
+    settings.setValue(QStringLiteral("activity/distanceUnit"), m_distanceUnit);
+    settings.setValue(QStringLiteral("activity/goalMeters"), m_dailyDistanceGoalMeters);
     settings.setValue(QStringLiteral("protocol/pref"), static_cast<int>(m_ble->protocolPreference()));
     settings.setValue(QStringLiteral("protocol/mtu"), m_ble->mtuSize());
     settings.setValue(QStringLiteral("protocol/delayMs"), m_ble->writeDelayMs());
@@ -522,6 +728,14 @@ void AppController::savePersistedState() const {
     root[QStringLiteral("appFilters")] = QJsonArray::fromVariantList(m_appFilters);
     root[QStringLiteral("templates")] = QJsonArray::fromVariantList(m_templates);
     root[QStringLiteral("scheduledAlerts")] = QJsonArray::fromVariantList(m_scheduledAlerts);
+    root[QStringLiteral("dailyActivity")] = QJsonObject::fromVariantMap(m_dailyActivityByDate);
+    root[QStringLiteral("latestHeartRate")] = m_latestHeartRate;
+    root[QStringLiteral("heartRateUpdatedAt")] = m_heartRateUpdatedAt.isValid() ? m_heartRateUpdatedAt.toString(Qt::ISODate) : QString();
+    root[QStringLiteral("heartRateSamples")] = QJsonArray::fromVariantList(m_heartRateSamples);
+    root[QStringLiteral("latestSpo2")] = m_latestSpo2;
+    root[QStringLiteral("spo2UpdatedAt")] = m_spo2UpdatedAt.isValid() ? m_spo2UpdatedAt.toString(Qt::ISODate) : QString();
+    root[QStringLiteral("spo2Samples")] = QJsonArray::fromVariantList(m_spo2Samples);
+    root[QStringLiteral("lastActivitySyncedAt")] = m_lastActivitySyncedAt.isValid() ? m_lastActivitySyncedAt.toString(Qt::ISODate) : QString();
 
     QFile file(stateFilePath());
     if (file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {

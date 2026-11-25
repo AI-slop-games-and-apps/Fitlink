@@ -1,8 +1,15 @@
 #include "BleWatchManager.h"
 
+#include <QBluetoothHostInfo>
+#include <QBluetoothLocalDevice>
 #include <QCoreApplication>
 #include <QLowEnergyDescriptor>
 #include <algorithm>
+
+#if defined(FITLINK_PLATFORM_LINUX_DBUS)
+#include <QDBusConnection>
+#include <QDBusConnectionInterface>
+#endif
 
 #if QT_VERSION >= QT_VERSION_CHECK(6, 6, 0)
 #include <QBluetoothPermission>
@@ -13,6 +20,16 @@ namespace fitlink {
 
 BleWatchManager::BleWatchManager(QObject *parent)
     : QObject(parent) {
+    m_writeTimer.setSingleShot(true);
+    connect(&m_writeTimer, &QTimer::timeout, this, &BleWatchManager::processWriteQueue);
+
+    checkBluetoothAvailability();
+}
+
+void BleWatchManager::ensureDiscoveryAgent() {
+    if (m_discoveryAgent) {
+        return;
+    }
     m_discoveryAgent = new QBluetoothDeviceDiscoveryAgent(this);
     m_discoveryAgent->setLowEnergyDiscoveryTimeout(12000);
 
@@ -22,9 +39,57 @@ BleWatchManager::BleWatchManager(QObject *parent)
             this, &BleWatchManager::onScanFinished);
     connect(m_discoveryAgent, &QBluetoothDeviceDiscoveryAgent::errorOccurred,
             this, &BleWatchManager::onScanError);
+}
 
-    m_writeTimer.setSingleShot(true);
-    connect(&m_writeTimer, &QTimer::timeout, this, &BleWatchManager::processWriteQueue);
+bool BleWatchManager::checkBluetoothAvailability() {
+    bool available = true;
+    QString message = tr("Bluetooth Ready");
+
+#if defined(FITLINK_PLATFORM_LINUX_DBUS)
+    QDBusConnection sysBus = QDBusConnection::systemBus();
+    if (!sysBus.isConnected() || !sysBus.interface()) {
+        available = false;
+        message = tr("System D-Bus is unavailable. BlueZ cannot be queried on this system.");
+    } else if (!sysBus.interface()->isServiceRegistered(QStringLiteral("org.bluez"))) {
+        available = false;
+        message = tr("BlueZ Bluetooth service is not installed or running. Install and start 'bluez' to connect BLE watches.");
+    } else {
+        const auto adapters = QBluetoothLocalDevice::allDevices();
+        if (adapters.isEmpty()) {
+            available = false;
+            message = tr("BlueZ is running, but no Bluetooth adapter was detected.");
+        } else {
+            bool anyPoweredOn = false;
+            for (const auto &hostInfo : adapters) {
+                QBluetoothLocalDevice local(hostInfo.address());
+                if (local.isValid() && local.hostMode() != QBluetoothLocalDevice::HostPoweredOff) {
+                    anyPoweredOn = true;
+                    break;
+                }
+            }
+            if (!anyPoweredOn) {
+                available = false;
+                message = tr("Bluetooth adapter is powered off. Enable Bluetooth to connect a watch.");
+            } else {
+                available = true;
+                message = tr("Bluetooth Ready (BlueZ)");
+            }
+        }
+    }
+#elif !defined(Q_OS_ANDROID)
+    const auto adapters = QBluetoothLocalDevice::allDevices();
+    if (adapters.isEmpty()) {
+        available = false;
+        message = tr("No Bluetooth adapter was detected on this device.");
+    }
+#endif
+
+    if (m_bluetoothAvailable != available || m_bluetoothStatusMessage != message) {
+        m_bluetoothAvailable = available;
+        m_bluetoothStatusMessage = message;
+        emit bluetoothAvailabilityChanged();
+    }
+    return m_bluetoothAvailable;
 }
 
 BleWatchManager::~BleWatchManager() {
@@ -66,6 +131,10 @@ QString BleWatchManager::deviceIdentifier(const QBluetoothDeviceInfo &info) {
 }
 
 void BleWatchManager::startScan() {
+    if (!checkBluetoothAvailability()) {
+        emit errorOccurred(m_bluetoothStatusMessage);
+        return;
+    }
     ensureBluetoothPermissionsAndScan();
 }
 
@@ -94,6 +163,8 @@ void BleWatchManager::ensureBluetoothPermissionsAndScan() {
 }
 
 void BleWatchManager::beginScanInternal() {
+    ensureDiscoveryAgent();
+
     m_discoveredDevices.clear();
     m_discoveredDevicesVariant.clear();
     emit discoveredDevicesChanged();
@@ -106,7 +177,7 @@ void BleWatchManager::beginScanInternal() {
 }
 
 void BleWatchManager::stopScan() {
-    if (m_discoveryAgent->isActive()) {
+    if (m_discoveryAgent && m_discoveryAgent->isActive()) {
         m_discoveryAgent->stop();
     }
     if (m_state == ConnectionState::Scanning) {
@@ -229,11 +300,15 @@ void BleWatchManager::cleanupConnection() {
     deleteService(m_batteryService);
     deleteService(m_deviceInfoService);
     deleteService(m_immediateAlertService);
+    deleteService(m_heartRateService);
+    deleteService(m_pulseOximeterService);
 
     m_dataOutChar = QLowEnergyCharacteristic();
     m_dataInChar = QLowEnergyCharacteristic();
     m_batteryChar = QLowEnergyCharacteristic();
     m_alertLevelChar = QLowEnergyCharacteristic();
+    m_heartRateChar = QLowEnergyCharacteristic();
+    m_spo2Char = QLowEnergyCharacteristic();
 
     if (m_controller) {
         m_controller->disconnectFromDevice();
@@ -284,6 +359,10 @@ void BleWatchManager::onServiceDiscovered(const QBluetoothUuid &serviceUuid) {
         m_deviceInfoService = m_controller->createServiceObject(serviceUuid, this);
     } else if (serviceUuid == GattUuids::ServiceImmediateAlert && !m_immediateAlertService) {
         m_immediateAlertService = m_controller->createServiceObject(serviceUuid, this);
+    } else if (serviceUuid == GattUuids::ServiceHeartRate && !m_heartRateService) {
+        m_heartRateService = m_controller->createServiceObject(serviceUuid, this);
+    } else if (serviceUuid == GattUuids::ServicePulseOximeter && !m_pulseOximeterService) {
+        m_pulseOximeterService = m_controller->createServiceObject(serviceUuid, this);
     }
 }
 
@@ -320,6 +399,22 @@ void BleWatchManager::onServiceDiscoveryFinished() {
         connect(m_immediateAlertService, &QLowEnergyService::stateChanged,
                 this, &BleWatchManager::onImmediateAlertServiceStateChanged);
         m_immediateAlertService->discoverDetails();
+    }
+
+    if (m_heartRateService) {
+        connect(m_heartRateService, &QLowEnergyService::stateChanged,
+                this, &BleWatchManager::onHeartRateServiceStateChanged);
+        connect(m_heartRateService, &QLowEnergyService::characteristicChanged,
+                this, &BleWatchManager::onCharacteristicChanged);
+        m_heartRateService->discoverDetails();
+    }
+
+    if (m_pulseOximeterService) {
+        connect(m_pulseOximeterService, &QLowEnergyService::stateChanged,
+                this, &BleWatchManager::onPulseOximeterServiceStateChanged);
+        connect(m_pulseOximeterService, &QLowEnergyService::characteristicChanged,
+                this, &BleWatchManager::onCharacteristicChanged);
+        m_pulseOximeterService->discoverDetails();
     }
 
     setState(ConnectionState::Connected);
@@ -390,6 +485,29 @@ void BleWatchManager::onImmediateAlertServiceStateChanged(QLowEnergyService::Ser
     m_alertLevelChar = m_immediateAlertService->characteristic(GattUuids::CharAlertLevel);
 }
 
+void BleWatchManager::onHeartRateServiceStateChanged(QLowEnergyService::ServiceState newState) {
+    if (newState != QLowEnergyService::RemoteServiceDiscovered || !m_heartRateService) {
+        return;
+    }
+    m_heartRateChar = m_heartRateService->characteristic(GattUuids::CharHeartRateMeasurement);
+    if (m_heartRateChar.isValid() && (m_heartRateChar.properties() & QLowEnergyCharacteristic::Notify)) {
+        subscribeToNotify(m_heartRateService, m_heartRateChar);
+    }
+}
+
+void BleWatchManager::onPulseOximeterServiceStateChanged(QLowEnergyService::ServiceState newState) {
+    if (newState != QLowEnergyService::RemoteServiceDiscovered || !m_pulseOximeterService) {
+        return;
+    }
+    m_spo2Char = m_pulseOximeterService->characteristic(GattUuids::CharPlxContinuous);
+    if (!m_spo2Char.isValid()) {
+        m_spo2Char = m_pulseOximeterService->characteristic(GattUuids::CharPlxSpotCheck);
+    }
+    if (m_spo2Char.isValid() && (m_spo2Char.properties() & (QLowEnergyCharacteristic::Notify | QLowEnergyCharacteristic::Indicate))) {
+        subscribeToNotify(m_pulseOximeterService, m_spo2Char);
+    }
+}
+
 void BleWatchManager::subscribeToNotify(QLowEnergyService *service, const QLowEnergyCharacteristic &characteristic) {
     const auto cccd = characteristic.descriptor(QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration);
     if (cccd.isValid()) {
@@ -426,6 +544,23 @@ void BleWatchManager::onCharacteristicChanged(const QLowEnergyCharacteristic &ch
         return;
     }
 
+    if (characteristic.uuid() == GattUuids::CharHeartRateMeasurement) {
+        const int bpm = FeeaCodec::parseStandardHeartRate(value);
+        if (bpm > 0) {
+            emit heartRateReceived(bpm);
+        }
+        return;
+    }
+
+    if (characteristic.uuid() == GattUuids::CharPlxContinuous
+        || characteristic.uuid() == GattUuids::CharPlxSpotCheck) {
+        const int spo2 = FeeaCodec::parseStandardSpo2(value);
+        if (spo2 > 0) {
+            emit spo2Received(spo2);
+        }
+        return;
+    }
+
     if (characteristic.uuid() == m_dataInChar.uuid()) {
         emit packetLogged(QStringLiteral("rx"),
                           tr("Watch Response"),
@@ -433,6 +568,19 @@ void BleWatchManager::onCharacteristicChanged(const QLowEnergyCharacteristic &ch
                           FeeaCodec::toHexString(value),
                           1,
                           QStringLiteral("ack"));
+
+        const ParsedHealthPacket parsed = FeeaCodec::parseFeeaHealthResponse(value);
+        if (parsed.valid) {
+            if (parsed.hasSteps) {
+                emit activityDataReceived(parsed.dayOffset, parsed.steps, parsed.distanceMeters);
+            }
+            if (parsed.hasHeartRate) {
+                emit heartRateReceived(parsed.heartRateBpm);
+            }
+            if (parsed.hasSpo2) {
+                emit spo2Received(parsed.spo2Percent);
+            }
+        }
     }
 }
 
@@ -521,6 +669,18 @@ void BleWatchManager::refreshBattery() {
     if (m_batteryService && m_batteryChar.isValid()) {
         m_batteryService->readCharacteristic(m_batteryChar);
     }
+}
+
+bool BleWatchManager::requestHealthSync() {
+    if (m_state != ConnectionState::Connected || !m_feeaService || !m_dataOutChar.isValid()) {
+        emit errorOccurred(tr("Connect a watch before refreshing activity data."));
+        return false;
+    }
+    const auto version = FeeaCodec::resolveVersion(m_detectedProtocol, m_protocolPref);
+    const bool okSteps = enqueuePacket(FeeaCodec::encodeSyncActivity(version, 0), tr("Sync Activity (0x51)"));
+    enqueuePacket(FeeaCodec::encodeSyncHeartRate(version), tr("Sync Heart Rate (0x6B)"));
+    enqueuePacket(FeeaCodec::encodeSyncSpo2(version), tr("Sync SpO2 (0x70)"));
+    return okSteps;
 }
 
 } // namespace fitlink
