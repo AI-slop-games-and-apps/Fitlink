@@ -9,13 +9,15 @@ import { TimeSyncView } from './components/TimeSyncView';
 import {
   bytesToHex,
   encodeFindWatch,
+  encodeGetActivity,
+  encodeGetActivityHistory,
   encodeMeasureHeartRate,
   encodeMeasureSpo2,
   encodeNotification,
-  encodeSyncActivity,
   encodeSyncTime,
   encodeTimeFormat,
   formatProtocolLabel,
+  maxNotificationTextBytes,
   resolveProtocolVersion,
   type ProtocolPreference,
 } from './protocol/feeaCodec';
@@ -373,10 +375,10 @@ export default function App() {
     session.onBatteryChanged = (level) => {
       setWatch((prev) => ({ ...prev, batteryLevel: level }));
     };
-    session.onDataReceived = (hex) => {
+    session.onDataReceived = (hex, label) => {
       appendLog({
         direction: 'rx',
-        actionLabel: 'Watch Notify (0xFEE3)',
+        actionLabel: label ?? 'Watch Notify (0xFEE3)',
         protocolLabel: 'FEEA',
         hexPreview: hex,
         chunkCount: 1,
@@ -514,13 +516,21 @@ export default function App() {
       setIsSyncingActivity(true);
       try {
         await sessionRef.current!.readActivity();
-        // Sync today (offset 0) plus earlier days of the current Mon–Sun week
+        // Query today with empty-payload get request (0x51, size=5) and earlier days via 0x52
+        const okToday = await transmitPacket(
+          'Get Today Activity (0x51)',
+          encodeGetActivity(resolved),
+          resolved
+        );
+        if (!okToday) {
+          return;
+        }
         const today = new Date();
         const daysSinceMonday = (today.getDay() + 6) % 7;
-        for (let offset = 0; offset <= daysSinceMonday; offset += 1) {
+        for (let offset = 1; offset <= daysSinceMonday; offset += 1) {
           const ok = await transmitPacket(
-            offset === 0 ? 'Sync Today Activity (0x51)' : `Sync Activity -${offset}d (0x51)`,
-            encodeSyncActivity(resolved, offset),
+            `Get Activity -${offset}d (0x52)`,
+            encodeGetActivityHistory(resolved, offset),
             resolved
           );
           if (!ok) {
@@ -697,7 +707,8 @@ export default function App() {
         return;
       }
       const resolved = resolveProtocolVersion(watch.detectedProtocol, watch.protocolPreference);
-      const pkt = encodeNotification(resolved, iconId, title, body);
+      const maxBytes = maxNotificationTextBytes(resolved, watch.deviceInfo.firmware);
+      const pkt = encodeNotification(resolved, iconId, title, body, maxBytes);
       const ok = await transmitPacket(sourceLabel, pkt, resolved);
       if (ok) {
         setActiveWatchBanner({
@@ -709,7 +720,14 @@ export default function App() {
         showToast('Notification pushed to watch');
       }
     },
-    [showToast, transmitPacket, watch.detectedProtocol, watch.isConnected, watch.protocolPreference]
+    [
+      showToast,
+      transmitPacket,
+      watch.detectedProtocol,
+      watch.deviceInfo.firmware,
+      watch.isConnected,
+      watch.protocolPreference,
+    ]
   );
 
   const handleToggleUse24Hour = async (next: boolean) => {

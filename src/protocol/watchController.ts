@@ -3,6 +3,7 @@ import {
   GATT_UUIDS,
   bytesToHex,
   chunkPacket,
+  describeIncomingFrame,
   detectProtocolFromManufacturer,
   expectedFrameLength,
   framePacket,
@@ -39,6 +40,7 @@ interface WebBleCharacteristic {
     read: boolean;
   };
   readValue(): Promise<DataView>;
+  writeValueWithResponse?(value: Uint8Array): Promise<void>;
   writeValueWithoutResponse?(value: Uint8Array): Promise<void>;
   writeValue?(value: Uint8Array): Promise<void>;
   startNotifications(): Promise<WebBleCharacteristic>;
@@ -88,7 +90,7 @@ export class WebBleWatchSession {
 
   onDisconnected?: () => void;
   onBatteryChanged?: (level: number) => void;
-  onDataReceived?: (hex: string) => void;
+  onDataReceived?: (hex: string, label?: string) => void;
   onActivityDataReceived?: (dayOffset: number, steps: number, distanceMeters: number) => void;
   onHeartRateReceived?: (bpm: number) => void;
   onSpo2Received?: (spo2: number) => void;
@@ -220,7 +222,6 @@ export class WebBleWatchSession {
             const target = ev.target as unknown as { value?: DataView };
             if (target?.value) {
               const bytes = new Uint8Array(target.value.buffer, target.value.byteOffset, target.value.byteLength);
-              this.onDataReceived?.(bytesToHex(bytes));
               this.handleIncomingFeeaChunk(bytes);
             }
           });
@@ -363,9 +364,9 @@ export class WebBleWatchSession {
       const cmd = packet[4] ?? 0x00;
       const version: 'v1' | 'v2' = (packet[2] & 0xf0) === 0x10 ? 'v1' : 'v2';
 
-      if (cmd === FEEA_CMD.SYNC_ACTIVITY) {
-        const dayOffset = packet[5] ?? 0;
-        const responseFrame = this.buildVirtualActivityFrame(version, dayOffset);
+      if (cmd === FEEA_CMD.GET_ACTIVITY || cmd === FEEA_CMD.GET_ACTIVITY_HIST) {
+        const dayOffset = cmd === FEEA_CMD.GET_ACTIVITY_HIST ? (packet[5] ?? 1) : 0;
+        const responseFrame = this.buildVirtualActivityFrame(version, dayOffset, cmd);
         this.dispatchParsedHealth(parseFeeaHealthResponse(responseFrame));
         return { chunks: chunks.length, ackHex: bytesToHex(responseFrame) };
       }
@@ -400,7 +401,12 @@ export class WebBleWatchSession {
 
     for (let i = 0; i < chunks.length; i += 1) {
       const chunk = chunks[i];
-      if (this.dataOutChar.properties.writeWithoutResponse && this.dataOutChar.writeValueWithoutResponse) {
+      // Prefer write-with-response when supported: per spec, write success notification arrives AFTER responses.
+      if (this.dataOutChar.properties.write && this.dataOutChar.writeValueWithResponse) {
+        await this.dataOutChar.writeValueWithResponse(chunk);
+      } else if (this.dataOutChar.properties.write && this.dataOutChar.writeValue) {
+        await this.dataOutChar.writeValue(chunk);
+      } else if (this.dataOutChar.properties.writeWithoutResponse && this.dataOutChar.writeValueWithoutResponse) {
         await this.dataOutChar.writeValueWithoutResponse(chunk);
       } else if (this.dataOutChar.writeValue) {
         await this.dataOutChar.writeValue(chunk);
@@ -463,14 +469,24 @@ export class WebBleWatchSession {
       merged.set(chunk, this.rxBuffer.length);
       this.rxBuffer = merged;
     } else {
+      this.onDataReceived?.(bytesToHex(chunk), describeIncomingFrame(chunk));
       this.dispatchParsedHealth(parseFeeaHealthResponse(chunk));
       return;
     }
 
-    if (this.rxExpectedLen > 0 && this.rxBuffer.length >= this.rxExpectedLen) {
+    while (this.rxExpectedLen > 0 && this.rxBuffer.length >= this.rxExpectedLen) {
       const complete = this.rxBuffer.slice(0, this.rxExpectedLen);
-      this.rxBuffer = new Uint8Array(0);
-      this.rxExpectedLen = 0;
+      const remainder = this.rxBuffer.slice(this.rxExpectedLen);
+      const nextExpLen = expectedFrameLength(remainder);
+      if (nextExpLen > 0) {
+        this.rxBuffer = remainder;
+        this.rxExpectedLen = nextExpLen;
+      } else {
+        this.rxBuffer = new Uint8Array(0);
+        this.rxExpectedLen = 0;
+      }
+
+      this.onDataReceived?.(bytesToHex(complete), describeIncomingFrame(complete));
       this.dispatchParsedHealth(parseFeeaHealthResponse(complete));
     }
   }
@@ -487,7 +503,11 @@ export class WebBleWatchSession {
     }
   }
 
-  private buildVirtualActivityFrame(version: 'v1' | 'v2', dayOffset: number): Uint8Array {
+  private buildVirtualActivityFrame(
+    version: 'v1' | 'v2',
+    dayOffset: number,
+    cmd: number = FEEA_CMD.GET_ACTIVITY
+  ): Uint8Array {
     // Realistic 7-day walking profile in steps + meters; today increments slightly per refresh
     const baseSteps = [7840, 6210, 8950, 5120, 7430, 9380, 4680];
     const baseMeters = [5820, 4610, 6680, 3810, 5510, 6990, 3480];
@@ -505,7 +525,7 @@ export class WebBleWatchSession {
       (meters >> 8) & 0xff,
       meters & 0xff,
     ]);
-    return framePacket(version, FEEA_CMD.SYNC_ACTIVITY, payload);
+    return framePacket(version, cmd, payload);
   }
 
   private cleanupHandles(): void {

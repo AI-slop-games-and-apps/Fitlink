@@ -1,5 +1,6 @@
 #include "FeeaCodec.h"
 
+#include <QRegularExpression>
 #include <QtEndian>
 #include <algorithm>
 #include <cmath>
@@ -121,6 +122,32 @@ QString FeeaCodec::versionLabel(ProtocolVersion version) {
     }
 }
 
+int FeeaCodec::maxPacketBytes(ProtocolVersion version, const QString &firmwareRevision) {
+    // V2 uses MTU-chunked variable-length packets (up to 12-bit 4095-byte frame limit).
+    // V1 (non-MTU fixed-size mode) uses 256-byte packets for firmware >= 1.6.5, and 64 otherwise.
+    if (version != ProtocolVersion::V1) {
+        return 4095;
+    }
+
+    static const QRegularExpression semverRe(QStringLiteral(R"((\d+)\.(\d+)(?:\.(\d+))?)"));
+    const auto match = semverRe.match(firmwareRevision);
+    if (match.hasMatch()) {
+        const int major = match.captured(1).toInt();
+        const int minor = match.captured(2).toInt();
+        const int patch = match.captured(3).isEmpty() ? 0 : match.captured(3).toInt();
+        if (major > 1 || (major == 1 && (minor > 6 || (minor == 6 && patch >= 5)))) {
+            return 256;
+        }
+    }
+    return 64;
+}
+
+int FeeaCodec::maxNotificationTextBytes(ProtocolVersion version, const QString &firmwareRevision) {
+    // Notification frame overhead = 5 (header + size + cmd) + 2 (icon + textLen) = 7 bytes
+    const int packetLimit = maxPacketBytes(version, firmwareRevision);
+    return std::clamp(packetLimit - 7, 16, 128);
+}
+
 int FeeaCodec::expectedFrameLength(const QByteArray &chunk) {
     if (chunk.size() < 4) {
         return -1;
@@ -134,16 +161,41 @@ int FeeaCodec::expectedFrameLength(const QByteArray &chunk) {
     const uint8_t prefix = b2 & 0xF0;
     if (prefix == V1Prefix || prefix == V2Prefix) {
         const int len = ((b2 & 0x0F) << 8) | b3;
-        return (len >= 5 && len <= 2048) ? len : -1;
+        return (len >= 5 && len <= 4095) ? len : -1;
     }
     return -1;
+}
+
+QString FeeaCodec::describeIncomingFrame(const QByteArray &frame) {
+    if (frame.size() < 5
+        || static_cast<uint8_t>(frame.at(0)) != HeaderByte0
+        || static_cast<uint8_t>(frame.at(1)) != HeaderByte1) {
+        return QStringLiteral("Watch Response");
+    }
+    const uint8_t cmd = static_cast<uint8_t>(frame.at(4));
+    const QString hexCmd = QStringLiteral("0x%1").arg(cmd, 2, 16, QLatin1Char('0')).toUpper();
+    if (cmd == CmdGetTime) return QStringLiteral("Time Response (%1)").arg(hexCmd);
+    if (cmd == CmdGetTimeFormat) return QStringLiteral("Time Format (%1)").arg(hexCmd);
+    if (cmd == CmdGetAlarms) return QStringLiteral("Alarms (%1)").arg(hexCmd);
+    if (cmd == CmdGetActivity || cmd == CmdGetActivityHist) return QStringLiteral("Activity Response (%1)").arg(hexCmd);
+    if (cmd == CmdMeasureHeartRate || cmd == CmdMeasureDynamicHr) return QStringLiteral("Heart Rate (%1)").arg(hexCmd);
+    if (cmd == CmdMeasureSpo2) return QStringLiteral("SpO2 (%1)").arg(hexCmd);
+    if (cmd == CmdWorkout && frame.size() >= 6) {
+        const uint8_t sub = static_cast<uint8_t>(frame.at(5));
+        return QStringLiteral("Workout (%1 %2)").arg(hexCmd, QStringLiteral("%1").arg(sub, 2, 16, QLatin1Char('0')).toUpper());
+    }
+    if (cmd == CmdAdvanced && frame.size() >= 6) {
+        const uint8_t sub = static_cast<uint8_t>(frame.at(5));
+        return QStringLiteral("Advanced (%1 %2)").arg(hexCmd, QStringLiteral("%1").arg(sub, 2, 16, QLatin1Char('0')).toUpper());
+    }
+    return QStringLiteral("Watch Response (%1)").arg(hexCmd);
 }
 
 QByteArray FeeaCodec::framePacket(ProtocolVersion version, uint8_t command, const QByteArray &payload) {
     // Verified 0xFEEA wire format:
     //   V1: [0xFE] [0xEA] [0x10 + size_hi] [size_lo] [cmd] [payload...]
     //   V2: [0xFE] [0xEA] [0x20 + size_hi] [size_lo] [cmd] [payload...]
-    // Total size includes header (2), size (2), command (1), and payload (N) => min 5 bytes.
+    // Total size includes UUID (2), size (2), command (1), and payload (N) => min 5 bytes.
     const uint16_t totalLen = static_cast<uint16_t>(std::min<qsizetype>(4095, 5 + payload.size()));
     const uint8_t versionPrefix = (version == ProtocolVersion::V1) ? V1Prefix : V2Prefix;
     const uint8_t sizeHi = static_cast<uint8_t>(versionPrefix + ((totalLen >> 8) & 0x0F));
@@ -158,6 +210,15 @@ QByteArray FeeaCodec::framePacket(ProtocolVersion version, uint8_t command, cons
     out.append(static_cast<char>(command));
     out.append(payload);
     return out;
+}
+
+QByteArray FeeaCodec::encodeGetCommand(ProtocolVersion version, uint8_t getCommand) {
+    // Get requests carry no payload (totalLen = 5); watch responds with same cmd + payload.
+    return framePacket(version, getCommand, QByteArray());
+}
+
+QByteArray FeeaCodec::encodeSubCommand(ProtocolVersion version, uint8_t command, const QByteArray &subPayload) {
+    return framePacket(version, command, subPayload);
 }
 
 QByteArray FeeaCodec::encodeSyncTime(ProtocolVersion version, const QDateTime &dateTime, int utcOffsetMinutes) {
@@ -229,13 +290,18 @@ QByteArray FeeaCodec::encodeNotification(ProtocolVersion version,
 
 QByteArray FeeaCodec::encodeFindWatch(ProtocolVersion version) {
     // Verified 0x61 Find Watch frame uses an empty payload (totalLen = 5: FE EA 10/20 05 61)
-    return framePacket(version, CmdFindWatch, QByteArray());
+    return encodeGetCommand(version, CmdFindWatch);
 }
 
-QByteArray FeeaCodec::encodeSyncActivity(ProtocolVersion version, uint8_t dayOffset) {
+QByteArray FeeaCodec::encodeGetActivity(ProtocolVersion version) {
+    // Empty-payload get request for today's activity summary (totalLen = 5: FE EA 10/20 05 51)
+    return encodeGetCommand(version, CmdGetActivity);
+}
+
+QByteArray FeeaCodec::encodeGetActivityHistory(ProtocolVersion version, uint8_t dayOffset) {
     QByteArray payload;
-    payload.append(static_cast<char>(std::min<uint8_t>(6, dayOffset)));
-    return framePacket(version, CmdSyncActivity, payload);
+    payload.append(static_cast<char>(std::clamp<uint8_t>(dayOffset, 1, 6)));
+    return framePacket(version, CmdGetActivityHist, payload);
 }
 
 QByteArray FeeaCodec::encodeMeasureHeartRate(ProtocolVersion version) {
@@ -250,6 +316,13 @@ QByteArray FeeaCodec::encodeMeasureSpo2(ProtocolVersion version) {
     QByteArray payload;
     payload.append(static_cast<char>(0x00));
     return framePacket(version, CmdMeasureSpo2, payload);
+}
+
+QByteArray FeeaCodec::encodeWorkoutListRequest(ProtocolVersion version) {
+    // Workout list request: 0xB2 00 (watch responds with 0xB2 01 + list)
+    QByteArray sub;
+    sub.append(static_cast<char>(SubCmdWorkoutListReq));
+    return encodeSubCommand(version, CmdWorkout, sub);
 }
 
 ParsedHealthPacket FeeaCodec::parseFee1Activity(const QByteArray &value) {
@@ -322,7 +395,7 @@ ParsedHealthPacket FeeaCodec::parseFeeaHealthResponse(const QByteArray &frame) {
     const uint8_t cmd = static_cast<uint8_t>(frame.at(4));
     const QByteArray payload = frame.mid(5);
 
-    if ((cmd == CmdSyncActivity || cmd == CmdSyncActivityHist || cmd == 0x09) && payload.size() >= 3) {
+    if ((cmd == CmdGetActivity || cmd == CmdGetActivityHist || cmd == 0x09) && payload.size() >= 3) {
         int offset = 0;
         if (payload.size() >= 7 && static_cast<uint8_t>(payload.at(0)) <= 6) {
             out.dayOffset = static_cast<uint8_t>(payload.at(0));
@@ -366,7 +439,8 @@ ParsedHealthPacket FeeaCodec::parseFeeaHealthResponse(const QByteArray &frame) {
         }
     }
 
-    if ((cmd == CmdBattery || cmd == 0x04) && !payload.isEmpty()) {
+    // Note: 0x41 is Get Time (0x31 + 0x10), not Battery. Only parse dedicated 1-byte battery frames.
+    if (cmd == 0x04 && payload.size() == 1) {
         const int batt = static_cast<uint8_t>(payload.at(0));
         if (batt >= 0 && batt <= 100) {
             out.hasBattery = true;

@@ -91,24 +91,40 @@ public:
     static constexpr uint8_t V2Prefix    = 0x20;
 
     // Documented 0xFEEA BLE command opcodes
-    static constexpr uint8_t CmdSetTimeFormat    = 0x27;
-    static constexpr uint8_t CmdSetTime          = 0x31;
-    static constexpr uint8_t CmdBattery          = 0x41;
-    static constexpr uint8_t CmdSyncActivity     = 0x51;
-    static constexpr uint8_t CmdSyncActivityHist = 0x52;
-    static constexpr uint8_t CmdFindWatch        = 0x61;
-    static constexpr uint8_t CmdPushNotification = 0x64;
-    static constexpr uint8_t CmdMeasureSpo2      = 0x6B;
-    static constexpr uint8_t CmdMeasureDynamicHr = 0x6D;
-    static constexpr uint8_t CmdMeasureHeartRate = 0x6F;
+    // Set/Get pairs follow get = set + 0x10 (e.g., 0x11/0x21, 0x27/0x37, 0x31/0x41)
+    static constexpr uint8_t CmdSetAlarms         = 0x11;
+    static constexpr uint8_t CmdGetAlarms         = 0x21;
+    static constexpr uint8_t CmdSetTimeFormat     = 0x27;
+    static constexpr uint8_t CmdGetTimeFormat     = 0x37;
+    static constexpr uint8_t CmdSetTime           = 0x31;
+    static constexpr uint8_t CmdGetTime           = 0x41;
+    static constexpr uint8_t CmdGetActivity       = 0x51;
+    static constexpr uint8_t CmdGetActivityHist   = 0x52;
+    static constexpr uint8_t CmdFindWatch         = 0x61;
+    static constexpr uint8_t CmdPushNotification  = 0x64;
+    static constexpr uint8_t CmdMeasureSpo2       = 0x6B;
+    static constexpr uint8_t CmdMeasureDynamicHr  = 0x6D;
+    static constexpr uint8_t CmdMeasureHeartRate  = 0x6F;
+    static constexpr uint8_t CmdWorkout           = 0xB2; // sub-cmd: 0x00 list req, 0x01 list resp
+    static constexpr uint8_t CmdAdvanced          = 0xB9; // sub-commands follow get = set + 0x10
+
+    static constexpr uint8_t SubCmdWorkoutListReq  = 0x00;
+    static constexpr uint8_t SubCmdWorkoutListResp = 0x01;
+    static constexpr uint8_t SubCmdAdvECard        = 0x12;
 
     static ProtocolVersion detectFromManufacturer(const QString &manufacturerName);
     static ProtocolVersion detectFromIncomingFrame(const QByteArray &frame);
     static ProtocolVersion resolveVersion(ProtocolVersion detected, ProtocolPreference pref);
     static QString versionLabel(ProtocolVersion version);
+    static int maxPacketBytes(ProtocolVersion version, const QString &firmwareRevision = QString());
+    static int maxNotificationTextBytes(ProtocolVersion version, const QString &firmwareRevision = QString());
     static int expectedFrameLength(const QByteArray &chunk);
+    static uint8_t getCommandForSet(uint8_t setCommand) { return static_cast<uint8_t>(setCommand + 0x10); }
+    static QString describeIncomingFrame(const QByteArray &frame);
 
     static QByteArray framePacket(ProtocolVersion version, uint8_t command, const QByteArray &payload);
+    static QByteArray encodeGetCommand(ProtocolVersion version, uint8_t getCommand);
+    static QByteArray encodeSubCommand(ProtocolVersion version, uint8_t command, const QByteArray &subPayload);
     static QByteArray encodeSyncTime(ProtocolVersion version, const QDateTime &dateTime, int utcOffsetMinutes);
     static QByteArray encodeTimeFormat(ProtocolVersion version, bool use24Hour);
     static QByteArray encodeNotification(ProtocolVersion version,
@@ -117,9 +133,11 @@ public:
                                          const QString &body,
                                          int maxUtf8Bytes = 128);
     static QByteArray encodeFindWatch(ProtocolVersion version);
-    static QByteArray encodeSyncActivity(ProtocolVersion version, uint8_t dayOffset = 0);
+    static QByteArray encodeGetActivity(ProtocolVersion version);
+    static QByteArray encodeGetActivityHistory(ProtocolVersion version, uint8_t dayOffset);
     static QByteArray encodeMeasureHeartRate(ProtocolVersion version);
     static QByteArray encodeMeasureSpo2(ProtocolVersion version);
+    static QByteArray encodeWorkoutListRequest(ProtocolVersion version);
 
     static ParsedHealthPacket parseFeeaHealthResponse(const QByteArray &frame);
     static ParsedHealthPacket parseFee1Activity(const QByteArray &value);

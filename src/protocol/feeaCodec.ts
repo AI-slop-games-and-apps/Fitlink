@@ -42,16 +42,28 @@ export const GATT_UUIDS = {
 } as const;
 
 export const FEEA_CMD = {
+  // Set/Get pairs follow get = set + 0x10 (e.g., 0x11/0x21, 0x27/0x37, 0x31/0x41)
+  SET_ALARMS: 0x11,
+  GET_ALARMS: 0x21,
   SET_TIME_FORMAT: 0x27,
+  GET_TIME_FORMAT: 0x37,
   SET_TIME: 0x31,
-  BATTERY: 0x41,
-  SYNC_ACTIVITY: 0x51,
-  SYNC_ACTIVITY_HIST: 0x52,
+  GET_TIME: 0x41,
+  GET_ACTIVITY: 0x51,
+  GET_ACTIVITY_HIST: 0x52,
   FIND_WATCH: 0x61,
   PUSH_NOTIFICATION: 0x64,
   MEASURE_SPO2: 0x6b,
   MEASURE_DYNAMIC_HR: 0x6d,
   MEASURE_HEART_RATE: 0x6f,
+  WORKOUT: 0xb2, // sub-cmd: 0x00 list req, 0x01 list resp
+  ADVANCED: 0xb9, // sub-commands follow get = set + 0x10
+} as const;
+
+export const FEEA_SUBCMD = {
+  WORKOUT_LIST_REQ: 0x00,
+  WORKOUT_LIST_RESP: 0x01,
+  ADV_ECARD: 0x12,
 } as const;
 
 export interface ParsedHealthPacket {
@@ -79,14 +91,63 @@ export function detectProtocolFromIncomingFrame(frame: Uint8Array): ProtocolVers
   return 'unknown';
 }
 
+export function maxPacketBytes(version: 'v1' | 'v2', firmwareRevision = ''): number {
+  // V2 uses MTU-chunked variable-length packets (up to 12-bit 4095-byte frame limit).
+  // V1 (non-MTU fixed-size mode) uses 256-byte packets for firmware >= 1.6.5, and 64 otherwise.
+  if (version !== 'v1') return 4095;
+  const match = firmwareRevision.match(/(\d+)\.(\d+)(?:\.(\d+))?/);
+  if (match) {
+    const major = Number.parseInt(match[1], 10);
+    const minor = Number.parseInt(match[2], 10);
+    const patch = match[3] ? Number.parseInt(match[3], 10) : 0;
+    if (major > 1 || (major === 1 && (minor > 6 || (minor === 6 && patch >= 5)))) {
+      return 256;
+    }
+  }
+  return 64;
+}
+
+export function maxNotificationTextBytes(version: 'v1' | 'v2', firmwareRevision = ''): number {
+  // Notification frame overhead = 5 (header + size + cmd) + 2 (icon + textLen) = 7 bytes
+  const limit = maxPacketBytes(version, firmwareRevision);
+  return Math.max(16, Math.min(128, limit - 7));
+}
+
+export function getCommandForSet(setCommand: number): number {
+  return (setCommand + 0x10) & 0xff;
+}
+
 export function expectedFrameLength(chunk: Uint8Array): number {
   if (chunk.length < 4 || chunk[0] !== 0xfe || chunk[1] !== 0xea) return -1;
   const prefix = chunk[2] & 0xf0;
   if (prefix === 0x10 || prefix === 0x20) {
     const len = ((chunk[2] & 0x0f) << 8) | chunk[3];
-    return len >= 5 && len <= 2048 ? len : -1;
+    return len >= 5 && len <= 4095 ? len : -1;
   }
   return -1;
+}
+
+export function describeIncomingFrame(frame: Uint8Array): string {
+  if (frame.length < 5 || frame[0] !== 0xfe || frame[1] !== 0xea) {
+    return 'Watch Response';
+  }
+  const cmd = frame[4];
+  const hexCmd = `0x${cmd.toString(16).padStart(2, '0').toUpperCase()}`;
+  if (cmd === FEEA_CMD.GET_TIME) return `Time Response (${hexCmd})`;
+  if (cmd === FEEA_CMD.GET_TIME_FORMAT) return `Time Format (${hexCmd})`;
+  if (cmd === FEEA_CMD.GET_ALARMS) return `Alarms (${hexCmd})`;
+  if (cmd === FEEA_CMD.GET_ACTIVITY || cmd === FEEA_CMD.GET_ACTIVITY_HIST) return `Activity Response (${hexCmd})`;
+  if (cmd === FEEA_CMD.MEASURE_HEART_RATE || cmd === FEEA_CMD.MEASURE_DYNAMIC_HR) return `Heart Rate (${hexCmd})`;
+  if (cmd === FEEA_CMD.MEASURE_SPO2) return `SpO2 (${hexCmd})`;
+  if (cmd === FEEA_CMD.WORKOUT && frame.length >= 6) {
+    const sub = frame[5].toString(16).padStart(2, '0').toUpperCase();
+    return `Workout (${hexCmd} ${sub})`;
+  }
+  if (cmd === FEEA_CMD.ADVANCED && frame.length >= 6) {
+    const sub = frame[5].toString(16).padStart(2, '0').toUpperCase();
+    return `Advanced (${hexCmd} ${sub})`;
+  }
+  return `Watch Response (${hexCmd})`;
 }
 
 export function resolveProtocolVersion(
@@ -112,6 +173,7 @@ export function framePacket(
   // Verified 0xFEEA wire format:
   //   V1: [0xFE] [0xEA] [0x10 + size_hi] [size_lo] [cmd] [payload...]
   //   V2: [0xFE] [0xEA] [0x20 + size_hi] [size_lo] [cmd] [payload...]
+  // Total size includes UUID (2), size (2), command (1), and payload (N) => min 5 bytes.
   const totalLen = Math.min(4095, 5 + payload.length);
   const prefix = version === 'v1' ? 0x10 : 0x20;
   const out = new Uint8Array(totalLen);
@@ -122,6 +184,19 @@ export function framePacket(
   out[4] = command & 0xff;
   out.set(payload, 5);
   return out;
+}
+
+export function encodeGetCommand(version: 'v1' | 'v2', getCommand: number): Uint8Array {
+  // Get requests carry no payload (size = 5); watch responds with same cmd + payload.
+  return framePacket(version, getCommand, new Uint8Array(0));
+}
+
+export function encodeSubCommand(
+  version: 'v1' | 'v2',
+  command: number,
+  subPayload: Uint8Array
+): Uint8Array {
+  return framePacket(version, command, subPayload);
 }
 
 export function encodeSyncTime(
@@ -201,12 +276,17 @@ export function encodeNotification(
 
 export function encodeFindWatch(version: 'v1' | 'v2'): Uint8Array {
   // Verified 0x61 Find Watch frame uses an empty payload (totalLen = 5)
-  return framePacket(version, FEEA_CMD.FIND_WATCH, new Uint8Array(0));
+  return encodeGetCommand(version, FEEA_CMD.FIND_WATCH);
 }
 
-export function encodeSyncActivity(version: 'v1' | 'v2', dayOffset = 0): Uint8Array {
-  const safeOffset = Math.max(0, Math.min(6, Math.trunc(dayOffset)));
-  return framePacket(version, FEEA_CMD.SYNC_ACTIVITY, new Uint8Array([safeOffset & 0xff]));
+export function encodeGetActivity(version: 'v1' | 'v2'): Uint8Array {
+  // Empty-payload get request for today's activity summary (totalLen = 5: FE EA 10/20 05 51)
+  return encodeGetCommand(version, FEEA_CMD.GET_ACTIVITY);
+}
+
+export function encodeGetActivityHistory(version: 'v1' | 'v2', dayOffset: number): Uint8Array {
+  const safeOffset = Math.max(1, Math.min(6, Math.trunc(dayOffset)));
+  return framePacket(version, FEEA_CMD.GET_ACTIVITY_HIST, new Uint8Array([safeOffset & 0xff]));
 }
 
 export function encodeMeasureHeartRate(version: 'v1' | 'v2'): Uint8Array {
@@ -217,6 +297,11 @@ export function encodeMeasureHeartRate(version: 'v1' | 'v2'): Uint8Array {
 export function encodeMeasureSpo2(version: 'v1' | 'v2'): Uint8Array {
   // Verified 0xFEEA Blood Oxygen (SpO2) trigger: FE EA 10/20 06 6B 00
   return framePacket(version, FEEA_CMD.MEASURE_SPO2, new Uint8Array([0x00]));
+}
+
+export function encodeWorkoutListRequest(version: 'v1' | 'v2'): Uint8Array {
+  // Workout list request: 0xB2 00 (watch responds with 0xB2 01 + list)
+  return encodeSubCommand(version, FEEA_CMD.WORKOUT, new Uint8Array([FEEA_SUBCMD.WORKOUT_LIST_REQ]));
 }
 
 function readUint24BE(buf: Uint8Array, offset: number): number {
@@ -313,7 +398,7 @@ export function parseFeeaHealthResponse(frame: Uint8Array): ParsedHealthPacket {
   const cmd = frame[4];
   const payload = frame.subarray(5);
 
-  if ((cmd === FEEA_CMD.SYNC_ACTIVITY || cmd === FEEA_CMD.SYNC_ACTIVITY_HIST || cmd === 0x09) && payload.length >= 3) {
+  if ((cmd === FEEA_CMD.GET_ACTIVITY || cmd === FEEA_CMD.GET_ACTIVITY_HIST || cmd === 0x09) && payload.length >= 3) {
     let offset = 0;
     let dayOffset = 0;
     if (payload.length >= 7 && payload[0] <= 6) {
@@ -374,7 +459,8 @@ export function parseFeeaHealthResponse(frame: Uint8Array): ParsedHealthPacket {
     }
   }
 
-  if ((cmd === FEEA_CMD.BATTERY || cmd === 0x04) && payload.length >= 1) {
+  // Note: 0x41 is Get Time (0x31 + 0x10), not Battery. Only parse dedicated 1-byte battery frames.
+  if (cmd === 0x04 && payload.length === 1) {
     const batt = payload[0];
     if (batt >= 0 && batt <= 100) {
       return {

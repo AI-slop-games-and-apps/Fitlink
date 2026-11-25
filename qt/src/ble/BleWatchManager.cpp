@@ -754,7 +754,8 @@ void BleWatchManager::processGattOpQueue() {
                 return;
             }
             if (op.writeMode == QLowEnergyService::WriteWithResponse) {
-                m_gattOpTimeoutTimer.start(1500);
+                // Per protocol spec, the write-success notification arrives AFTER the watch emits its 0xFEE3 responses.
+                m_gattOpTimeoutTimer.start(3000);
                 op.service->writeCharacteristic(op.characteristic, op.value, QLowEnergyService::WriteWithResponse);
             } else {
                 op.service->writeCharacteristic(op.characteristic, op.value, QLowEnergyService::WriteWithoutResponse);
@@ -924,14 +925,6 @@ void BleWatchManager::onCharacteristicChanged(const QLowEnergyCharacteristic &ch
         return;
     }
 
-    // Incoming notification on 0xFEE3 (or auxiliary 0xFEEA notify characteristic)
-    emit packetLogged(QStringLiteral("rx"),
-                      tr("Watch Response"),
-                      FeeaCodec::versionLabel(FeeaCodec::resolveVersion(m_detectedProtocol, m_protocolPref)),
-                      FeeaCodec::toHexString(value),
-                      1,
-                      QStringLiteral("ack"));
-
     // Auto-learn V1 vs V2 from the watch's own 0xFE 0xEA frame header if not already known
     const auto frameVer = FeeaCodec::detectFromIncomingFrame(value);
     if (frameVer != ProtocolVersion::Unknown && m_detectedProtocol == ProtocolVersion::Unknown) {
@@ -939,7 +932,9 @@ void BleWatchManager::onCharacteristicChanged(const QLowEnergyCharacteristic &ch
         emit protocolChanged();
     }
 
-    // Reassemble multi-chunk 0xFEEA frames when response exceeds 20-byte BLE MTU
+    const QString protoLabel = FeeaCodec::versionLabel(FeeaCodec::resolveVersion(m_detectedProtocol, m_protocolPref));
+
+    // Reassemble multi-chunk 0xFEEA frames (and handle multiple frames arriving in one notify)
     const int expLen = FeeaCodec::expectedFrameLength(value);
     if (expLen > 0) {
         m_rxAssemblyBuffer = value;
@@ -947,14 +942,31 @@ void BleWatchManager::onCharacteristicChanged(const QLowEnergyCharacteristic &ch
     } else if (!m_rxAssemblyBuffer.isEmpty() && m_rxExpectedLength > 0) {
         m_rxAssemblyBuffer.append(value);
     } else {
+        emit packetLogged(QStringLiteral("rx"),
+                          FeeaCodec::describeIncomingFrame(value),
+                          protoLabel,
+                          FeeaCodec::toHexString(value),
+                          1,
+                          QStringLiteral("ack"));
         handleParsedHealth(FeeaCodec::parseFeeaHealthResponse(value));
         return;
     }
 
-    if (m_rxExpectedLength > 0 && m_rxAssemblyBuffer.size() >= m_rxExpectedLength) {
+    while (m_rxExpectedLength > 0 && m_rxAssemblyBuffer.size() >= m_rxExpectedLength) {
         const QByteArray completeFrame = m_rxAssemblyBuffer.left(m_rxExpectedLength);
-        m_rxAssemblyBuffer.clear();
-        m_rxExpectedLength = 0;
+        m_rxAssemblyBuffer.remove(0, m_rxExpectedLength);
+        m_rxExpectedLength = FeeaCodec::expectedFrameLength(m_rxAssemblyBuffer);
+        if (m_rxExpectedLength < 0) {
+            m_rxAssemblyBuffer.clear();
+            m_rxExpectedLength = 0;
+        }
+
+        emit packetLogged(QStringLiteral("rx"),
+                          FeeaCodec::describeIncomingFrame(completeFrame),
+                          protoLabel,
+                          FeeaCodec::toHexString(completeFrame),
+                          1,
+                          QStringLiteral("ack"));
         handleParsedHealth(FeeaCodec::parseFeeaHealthResponse(completeFrame));
     }
 }
@@ -965,9 +977,10 @@ bool BleWatchManager::enqueuePacket(const QByteArray &packet, const QString &act
         return false;
     }
 
-    const auto mode = (m_dataOutChar.properties() & QLowEnergyCharacteristic::WriteNoResponse)
-        ? QLowEnergyService::WriteWithoutResponse
-        : QLowEnergyService::WriteWithResponse;
+    // Prefer WriteWithResponse when supported: per spec, write-success notification comes AFTER watch responses.
+    const auto mode = (m_dataOutChar.properties() & QLowEnergyCharacteristic::Write)
+        ? QLowEnergyService::WriteWithResponse
+        : QLowEnergyService::WriteWithoutResponse;
 
     const auto chunks = FeeaCodec::chunkPacket(packet, m_mtuSize);
     for (const auto &chunk : chunks) {
@@ -1010,7 +1023,11 @@ bool BleWatchManager::sendTimeFormat(bool use24Hour) {
 
 bool BleWatchManager::sendNotification(WatchAppIcon icon, const QString &title, const QString &body) {
     const auto version = FeeaCodec::resolveVersion(m_detectedProtocol, m_protocolPref);
-    const QByteArray packet = FeeaCodec::encodeNotification(version, icon, title, body);
+    const int maxTextBytes = FeeaCodec::maxNotificationTextBytes(
+        version,
+        m_deviceInfo.value(QStringLiteral("firmware")).toString()
+    );
+    const QByteArray packet = FeeaCodec::encodeNotification(version, icon, title, body, maxTextBytes);
     return enqueuePacket(packet, tr("Push Notification"));
 }
 
@@ -1059,11 +1076,11 @@ bool BleWatchManager::requestHealthSync() {
         enqueueReadChar(m_batteryService, m_batteryChar, tr("Read Battery"));
     }
 
-    // 2. Query daily activity (today + recent days) over 0xFEE2
+    // 2. Query today's activity with an empty-payload get request (0x51, size=5) and recent history (0x52)
     const auto version = FeeaCodec::resolveVersion(m_detectedProtocol, m_protocolPref);
-    const bool okSteps = enqueuePacket(FeeaCodec::encodeSyncActivity(version, 0), tr("Sync Activity Today (0x51)"));
-    enqueuePacket(FeeaCodec::encodeSyncActivity(version, 1), tr("Sync Activity Yesterday (0x51)"));
-    enqueuePacket(FeeaCodec::encodeSyncActivity(version, 2), tr("Sync Activity -2d (0x51)"));
+    const bool okSteps = enqueuePacket(FeeaCodec::encodeGetActivity(version), tr("Get Activity Today (0x51)"));
+    enqueuePacket(FeeaCodec::encodeGetActivityHistory(version, 1), tr("Get Activity Yesterday (0x52)"));
+    enqueuePacket(FeeaCodec::encodeGetActivityHistory(version, 2), tr("Get Activity -2d (0x52)"));
     return okSteps;
 }
 
