@@ -11,8 +11,8 @@ namespace fitlink {
 
 enum class ProtocolVersion {
     Unknown = 0,
-    V1 = 1, // Legacy 0xFEEA V1 framing: 0xFE 0xEA 0x10 <len> <cmd> <payload...>
-    V2 = 2  // Modern 0xFEEA V2 framing: 0xFE 0xEA <len_lo> <len_hi> <cmd> <payload...>
+    V1 = 1, // 0xFEEA V1 framing: 0xFE 0xEA [0x10 + len_hi] [len_lo] <cmd> <payload...>
+    V2 = 2  // 0xFEEA V2 framing: 0xFE 0xEA [0x20 + len_hi] [len_lo] <cmd> <payload...>
 };
 
 enum class ProtocolPreference {
@@ -43,6 +43,7 @@ enum class WatchAppIcon : uint8_t {
 
 namespace GattUuids {
 inline const QBluetoothUuid ServiceFeea(QStringLiteral("0000feea-0000-1000-8000-00805f9b34fb"));
+inline const QBluetoothUuid CharActivity(QStringLiteral("0000fee1-0000-1000-8000-00805f9b34fb"));
 inline const QBluetoothUuid CharDataOut(QStringLiteral("0000fee2-0000-1000-8000-00805f9b34fb"));
 inline const QBluetoothUuid CharDataIn(QStringLiteral("0000fee3-0000-1000-8000-00805f9b34fb"));
 inline const QBluetoothUuid CharDataOutAlt(QStringLiteral("0000fee5-0000-1000-8000-00805f9b34fb"));
@@ -78,26 +79,33 @@ struct ParsedHealthPacket {
     int heartRateBpm = 0;
     bool hasSpo2 = false;
     int spo2Percent = 0;
+    bool hasBattery = false;
+    int batteryPercent = -1;
 };
 
 class FeeaCodec {
 public:
     static constexpr uint8_t HeaderByte0 = 0xFE;
     static constexpr uint8_t HeaderByte1 = 0xEA;
-    static constexpr uint8_t V1Marker    = 0x10;
+    static constexpr uint8_t V1Prefix    = 0x10;
+    static constexpr uint8_t V2Prefix    = 0x20;
 
     // Documented 0xFEEA BLE command opcodes
     static constexpr uint8_t CmdSetTimeFormat    = 0x27;
     static constexpr uint8_t CmdSetTime          = 0x31;
+    static constexpr uint8_t CmdBattery          = 0x41;
     static constexpr uint8_t CmdSyncActivity     = 0x51;
+    static constexpr uint8_t CmdSyncActivityHist = 0x52;
     static constexpr uint8_t CmdFindWatch        = 0x61;
     static constexpr uint8_t CmdPushNotification = 0x64;
     static constexpr uint8_t CmdSyncHeartRate    = 0x6B;
     static constexpr uint8_t CmdSyncSpo2         = 0x70;
 
     static ProtocolVersion detectFromManufacturer(const QString &manufacturerName);
+    static ProtocolVersion detectFromIncomingFrame(const QByteArray &frame);
     static ProtocolVersion resolveVersion(ProtocolVersion detected, ProtocolPreference pref);
     static QString versionLabel(ProtocolVersion version);
+    static int expectedFrameLength(const QByteArray &chunk);
 
     static QByteArray framePacket(ProtocolVersion version, uint8_t command, const QByteArray &payload);
     static QByteArray encodeSyncTime(ProtocolVersion version, const QDateTime &dateTime, int utcOffsetMinutes);
@@ -113,6 +121,7 @@ public:
     static QByteArray encodeSyncSpo2(ProtocolVersion version);
 
     static ParsedHealthPacket parseFeeaHealthResponse(const QByteArray &frame);
+    static ParsedHealthPacket parseFee1Activity(const QByteArray &value);
     static int parseStandardHeartRate(const QByteArray &value);
     static int parseStandardSpo2(const QByteArray &value);
 

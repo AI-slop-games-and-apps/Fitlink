@@ -3,7 +3,7 @@
 #include <QBluetoothHostInfo>
 #include <QBluetoothLocalDevice>
 #include <QCoreApplication>
-#include <QLowEnergyDescriptor>
+#include <QPair>
 #include <algorithm>
 
 #if defined(FITLINK_PLATFORM_LINUX_DBUS)
@@ -20,8 +20,17 @@ namespace fitlink {
 
 BleWatchManager::BleWatchManager(QObject *parent)
     : QObject(parent) {
-    m_writeTimer.setSingleShot(true);
-    connect(&m_writeTimer, &QTimer::timeout, this, &BleWatchManager::processWriteQueue);
+    m_serviceDiscoveryTimer.setSingleShot(true);
+    connect(&m_serviceDiscoveryTimer, &QTimer::timeout,
+            this, &BleWatchManager::onServiceDiscoveryTimeout);
+
+    m_gattOpTimer.setSingleShot(true);
+    connect(&m_gattOpTimer, &QTimer::timeout,
+            this, &BleWatchManager::processGattOpQueue);
+
+    m_gattOpTimeoutTimer.setSingleShot(true);
+    connect(&m_gattOpTimeoutTimer, &QTimer::timeout,
+            this, &BleWatchManager::onGattOpTimeout);
 
     checkBluetoothAvailability();
 }
@@ -287,11 +296,23 @@ void BleWatchManager::disconnectDevice() {
 }
 
 void BleWatchManager::cleanupConnection() {
-    m_writeTimer.stop();
-    m_writeQueue.clear();
+    m_serviceDiscoveryTimer.stop();
+    m_pendingServiceDiscoveries.clear();
+    m_discoveringService = nullptr;
+    m_initializingGatt = false;
+
+    m_gattOpTimer.stop();
+    m_gattOpTimeoutTimer.stop();
+    m_gattOpQueue.clear();
+    m_gattOpInFlight = false;
+
+    m_rxAssemblyBuffer.clear();
+    m_rxExpectedLength = 0;
+    m_discoveredServiceUuids.clear();
 
     auto deleteService = [](QLowEnergyService *&svc) {
         if (svc) {
+            svc->disconnect();
             svc->deleteLater();
             svc = nullptr;
         }
@@ -303,6 +324,7 @@ void BleWatchManager::cleanupConnection() {
     deleteService(m_heartRateService);
     deleteService(m_pulseOximeterService);
 
+    m_activityChar = QLowEnergyCharacteristic();
     m_dataOutChar = QLowEnergyCharacteristic();
     m_dataInChar = QLowEnergyCharacteristic();
     m_batteryChar = QLowEnergyCharacteristic();
@@ -311,6 +333,7 @@ void BleWatchManager::cleanupConnection() {
     m_spo2Char = QLowEnergyCharacteristic();
 
     if (m_controller) {
+        m_controller->disconnect();
         m_controller->disconnectFromDevice();
         m_controller->deleteLater();
         m_controller = nullptr;
@@ -319,11 +342,12 @@ void BleWatchManager::cleanupConnection() {
 
 void BleWatchManager::onControllerConnected() {
     emit packetLogged(QStringLiteral("system"),
-                      tr("BLE Connected"),
+                      tr("BLE Connected — Discovering Services"),
                       FeeaCodec::versionLabel(FeeaCodec::resolveVersion(m_detectedProtocol, m_protocolPref)),
                       m_deviceAddress,
                       0,
                       QStringLiteral("ack"));
+    m_discoveredServiceUuids.clear();
     m_controller->discoverServices();
 }
 
@@ -351,6 +375,8 @@ void BleWatchManager::onServiceDiscovered(const QBluetoothUuid &serviceUuid) {
     if (!m_controller) {
         return;
     }
+    m_discoveredServiceUuids.append(serviceUuid.toString(QUuid::WithoutBraces));
+
     if (serviceUuid == GattUuids::ServiceFeea && !m_feeaService) {
         m_feeaService = m_controller->createServiceObject(serviceUuid, this);
     } else if (serviceUuid == GattUuids::ServiceBattery && !m_batteryService) {
@@ -366,136 +392,267 @@ void BleWatchManager::onServiceDiscovered(const QBluetoothUuid &serviceUuid) {
     }
 }
 
+void BleWatchManager::attachServiceSignals(QLowEnergyService *service) {
+    if (!service) {
+        return;
+    }
+    connect(service, &QLowEnergyService::characteristicChanged,
+            this, &BleWatchManager::onCharacteristicChanged);
+    connect(service, &QLowEnergyService::characteristicRead,
+            this, &BleWatchManager::onCharacteristicRead);
+    connect(service, &QLowEnergyService::characteristicWritten,
+            this, &BleWatchManager::onCharacteristicWritten);
+    connect(service, &QLowEnergyService::descriptorWritten,
+            this, &BleWatchManager::onDescriptorWritten);
+    connect(service, &QLowEnergyService::errorOccurred,
+            this, &BleWatchManager::onServiceError);
+}
+
 void BleWatchManager::onServiceDiscoveryFinished() {
+    emit packetLogged(QStringLiteral("system"),
+                      tr("Discovered %1 GATT services").arg(m_discoveredServiceUuids.size()),
+                      FeeaCodec::versionLabel(FeeaCodec::resolveVersion(m_detectedProtocol, m_protocolPref)),
+                      m_discoveredServiceUuids.join(QStringLiteral(", ")),
+                      0,
+                      QStringLiteral("ack"));
+
     if (!m_feeaService) {
         emit errorOccurred(tr("Connected device does not expose BLE service 0xFEEA."));
-    } else {
-        connect(m_feeaService, &QLowEnergyService::stateChanged,
-                this, &BleWatchManager::onFeeaServiceStateChanged);
-        connect(m_feeaService, &QLowEnergyService::characteristicChanged,
-                this, &BleWatchManager::onCharacteristicChanged);
-        m_feeaService->discoverDetails();
     }
 
-    if (m_batteryService) {
-        connect(m_batteryService, &QLowEnergyService::stateChanged,
-                this, &BleWatchManager::onBatteryServiceStateChanged);
-        connect(m_batteryService, &QLowEnergyService::characteristicChanged,
-                this, &BleWatchManager::onCharacteristicChanged);
-        connect(m_batteryService, &QLowEnergyService::characteristicRead,
-                this, &BleWatchManager::onCharacteristicRead);
-        m_batteryService->discoverDetails();
-    }
+    m_pendingServiceDiscoveries.clear();
+    m_gattOpQueue.clear();
+    m_gattOpInFlight = false;
+    m_initializingGatt = true;
 
+    // Discover service details STRICTLY ONE AT A TIME for Android BluetoothGatt stability.
+    // Order: Device Info first (so V1/V2 protocol is detected from Manufacturer Name), then 0xFEEA,
+    // then Battery, Heart Rate, Pulse Oximeter, Immediate Alert.
     if (m_deviceInfoService) {
+        attachServiceSignals(m_deviceInfoService);
         connect(m_deviceInfoService, &QLowEnergyService::stateChanged,
                 this, &BleWatchManager::onDeviceInfoServiceStateChanged);
-        connect(m_deviceInfoService, &QLowEnergyService::characteristicRead,
-                this, &BleWatchManager::onCharacteristicRead);
-        m_deviceInfoService->discoverDetails();
+        m_pendingServiceDiscoveries.enqueue(m_deviceInfoService);
     }
-
-    if (m_immediateAlertService) {
-        connect(m_immediateAlertService, &QLowEnergyService::stateChanged,
-                this, &BleWatchManager::onImmediateAlertServiceStateChanged);
-        m_immediateAlertService->discoverDetails();
+    if (m_feeaService) {
+        attachServiceSignals(m_feeaService);
+        connect(m_feeaService, &QLowEnergyService::stateChanged,
+                this, &BleWatchManager::onFeeaServiceStateChanged);
+        m_pendingServiceDiscoveries.enqueue(m_feeaService);
     }
-
+    if (m_batteryService) {
+        attachServiceSignals(m_batteryService);
+        connect(m_batteryService, &QLowEnergyService::stateChanged,
+                this, &BleWatchManager::onBatteryServiceStateChanged);
+        m_pendingServiceDiscoveries.enqueue(m_batteryService);
+    }
     if (m_heartRateService) {
+        attachServiceSignals(m_heartRateService);
         connect(m_heartRateService, &QLowEnergyService::stateChanged,
                 this, &BleWatchManager::onHeartRateServiceStateChanged);
-        connect(m_heartRateService, &QLowEnergyService::characteristicChanged,
-                this, &BleWatchManager::onCharacteristicChanged);
-        m_heartRateService->discoverDetails();
+        m_pendingServiceDiscoveries.enqueue(m_heartRateService);
     }
-
     if (m_pulseOximeterService) {
+        attachServiceSignals(m_pulseOximeterService);
         connect(m_pulseOximeterService, &QLowEnergyService::stateChanged,
                 this, &BleWatchManager::onPulseOximeterServiceStateChanged);
-        connect(m_pulseOximeterService, &QLowEnergyService::characteristicChanged,
-                this, &BleWatchManager::onCharacteristicChanged);
-        m_pulseOximeterService->discoverDetails();
+        m_pendingServiceDiscoveries.enqueue(m_pulseOximeterService);
+    }
+    if (m_immediateAlertService) {
+        attachServiceSignals(m_immediateAlertService);
+        connect(m_immediateAlertService, &QLowEnergyService::stateChanged,
+                this, &BleWatchManager::onImmediateAlertServiceStateChanged);
+        m_pendingServiceDiscoveries.enqueue(m_immediateAlertService);
     }
 
-    setState(ConnectionState::Connected);
+    discoverNextService();
+}
+
+void BleWatchManager::discoverNextService() {
+    m_serviceDiscoveryTimer.stop();
+    m_discoveringService = nullptr;
+
+    while (!m_pendingServiceDiscoveries.isEmpty()) {
+        QPointer<QLowEnergyService> next = m_pendingServiceDiscoveries.dequeue();
+        if (!next) {
+            continue;
+        }
+        m_discoveringService = next;
+        m_serviceDiscoveryTimer.start(4000);
+        next->discoverDetails();
+        return;
+    }
+
+    // All service details discovered — now drain the serialized initial GATT setup queue
+    // (Device Info reads, 0xFEE3/0xFEE1 CCCD enables, Battery read) before emitting Connected.
+    processGattOpQueue();
+}
+
+void BleWatchManager::advanceServiceDiscovery(QLowEnergyService *completedService) {
+    if (m_discoveringService == completedService) {
+        m_serviceDiscoveryTimer.stop();
+        m_discoveringService = nullptr;
+        QTimer::singleShot(35, this, &BleWatchManager::discoverNextService);
+    }
+}
+
+void BleWatchManager::onServiceDiscoveryTimeout() {
+    if (m_discoveringService) {
+        emit packetLogged(QStringLiteral("system"),
+                          tr("Service Detail Timeout"),
+                          QStringLiteral("-"),
+                          m_discoveringService->serviceUuid().toString(QUuid::WithoutBraces),
+                          0,
+                          QStringLiteral("error"));
+        m_discoveringService = nullptr;
+    }
+    discoverNextService();
+}
+
+void BleWatchManager::onDeviceInfoServiceStateChanged(QLowEnergyService::ServiceState newState) {
+    if (newState == QLowEnergyService::InvalidService) {
+        advanceServiceDiscovery(m_deviceInfoService);
+        return;
+    }
+    if (newState != QLowEnergyService::RemoteServiceDiscovered || !m_deviceInfoService) {
+        return;
+    }
+    const QList<QPair<QBluetoothUuid, QString>> charsToRead = {
+        { GattUuids::CharManufacturerName, tr("Read Manufacturer") },
+        { GattUuids::CharModelNumber,      tr("Read Model Number") },
+        { GattUuids::CharFirmwareRevision, tr("Read Firmware Rev") },
+        { GattUuids::CharHardwareRevision, tr("Read Hardware Rev") }
+    };
+    for (const auto &entry : charsToRead) {
+        const auto ch = m_deviceInfoService->characteristic(entry.first);
+        if (ch.isValid()) {
+            enqueueReadChar(m_deviceInfoService, ch, entry.second);
+        }
+    }
+    advanceServiceDiscovery(m_deviceInfoService);
 }
 
 void BleWatchManager::onFeeaServiceStateChanged(QLowEnergyService::ServiceState newState) {
+    if (newState == QLowEnergyService::InvalidService) {
+        advanceServiceDiscovery(m_feeaService);
+        return;
+    }
     if (newState != QLowEnergyService::RemoteServiceDiscovered || !m_feeaService) {
         return;
     }
 
+    m_activityChar = m_feeaService->characteristic(GattUuids::CharActivity);
     m_dataOutChar = m_feeaService->characteristic(GattUuids::CharDataOut);
     if (!m_dataOutChar.isValid()) {
         m_dataOutChar = m_feeaService->characteristic(GattUuids::CharDataOutAlt);
     }
     m_dataInChar = m_feeaService->characteristic(GattUuids::CharDataIn);
 
-    // Fallback scan for watches using alternate characteristic UUIDs inside 0xFEEA
+    QStringList charSummary;
     const auto chars = m_feeaService->characteristics();
     for (const auto &ch : chars) {
-        if (!m_dataOutChar.isValid() && (ch.properties() & (QLowEnergyCharacteristic::Write | QLowEnergyCharacteristic::WriteNoResponse))) {
+        QStringList props;
+        if (ch.properties() & QLowEnergyCharacteristic::Read) props << QStringLiteral("R");
+        if (ch.properties() & QLowEnergyCharacteristic::Write) props << QStringLiteral("W");
+        if (ch.properties() & QLowEnergyCharacteristic::WriteNoResponse) props << QStringLiteral("WNR");
+        if (ch.properties() & QLowEnergyCharacteristic::Notify) props << QStringLiteral("N");
+        if (ch.properties() & QLowEnergyCharacteristic::Indicate) props << QStringLiteral("I");
+        charSummary << QStringLiteral("%1[%2]")
+            .arg(ch.uuid().toString(QUuid::WithoutBraces).left(8), props.join(QStringLiteral(",")));
+
+        if (!m_dataOutChar.isValid()
+            && (ch.properties() & (QLowEnergyCharacteristic::Write | QLowEnergyCharacteristic::WriteNoResponse))) {
             m_dataOutChar = ch;
         }
-        if (!m_dataInChar.isValid() && (ch.properties() & QLowEnergyCharacteristic::Notify)) {
+        if (!m_dataInChar.isValid()
+            && ch.uuid() != GattUuids::CharActivity
+            && (ch.properties() & (QLowEnergyCharacteristic::Notify | QLowEnergyCharacteristic::Indicate))) {
             m_dataInChar = ch;
         }
     }
 
+    emit packetLogged(QStringLiteral("system"),
+                      tr("0xFEEA Characteristics"),
+                      FeeaCodec::versionLabel(FeeaCodec::resolveVersion(m_detectedProtocol, m_protocolPref)),
+                      charSummary.join(QStringLiteral(" ")),
+                      0,
+                      QStringLiteral("ack"));
+
     if (m_dataInChar.isValid()) {
-        subscribeToNotify(m_feeaService, m_dataInChar);
+        enqueueSubscribeToNotify(m_feeaService, m_dataInChar, tr("Enable 0xFEE3 Notify"));
     }
+    if (m_activityChar.isValid()) {
+        if (m_activityChar.properties() & (QLowEnergyCharacteristic::Notify | QLowEnergyCharacteristic::Indicate)) {
+            enqueueSubscribeToNotify(m_feeaService, m_activityChar, tr("Enable 0xFEE1 Notify"));
+        }
+        if (m_activityChar.properties() & QLowEnergyCharacteristic::Read) {
+            enqueueReadChar(m_feeaService, m_activityChar, tr("Read Activity (0xFEE1)"));
+        }
+    }
+
+    // Subscribe to any additional Notify characteristics inside 0xFEEA so no watch telemetry is missed
+    for (const auto &ch : chars) {
+        if (ch.uuid() != m_dataInChar.uuid()
+            && ch.uuid() != m_activityChar.uuid()
+            && (ch.properties() & (QLowEnergyCharacteristic::Notify | QLowEnergyCharacteristic::Indicate))) {
+            enqueueSubscribeToNotify(m_feeaService, ch, tr("Enable 0xFEEA Aux Notify"));
+        }
+    }
+
+    advanceServiceDiscovery(m_feeaService);
 }
 
 void BleWatchManager::onBatteryServiceStateChanged(QLowEnergyService::ServiceState newState) {
+    if (newState == QLowEnergyService::InvalidService) {
+        advanceServiceDiscovery(m_batteryService);
+        return;
+    }
     if (newState != QLowEnergyService::RemoteServiceDiscovered || !m_batteryService) {
         return;
     }
     m_batteryChar = m_batteryService->characteristic(GattUuids::CharBatteryLevel);
     if (m_batteryChar.isValid()) {
-        m_batteryService->readCharacteristic(m_batteryChar);
-        if (m_batteryChar.properties() & QLowEnergyCharacteristic::Notify) {
-            subscribeToNotify(m_batteryService, m_batteryChar);
+        enqueueReadChar(m_batteryService, m_batteryChar, tr("Read Battery"));
+        if (m_batteryChar.properties() & (QLowEnergyCharacteristic::Notify | QLowEnergyCharacteristic::Indicate)) {
+            enqueueSubscribeToNotify(m_batteryService, m_batteryChar, tr("Enable Battery Notify"));
         }
     }
-}
-
-void BleWatchManager::onDeviceInfoServiceStateChanged(QLowEnergyService::ServiceState newState) {
-    if (newState != QLowEnergyService::RemoteServiceDiscovered || !m_deviceInfoService) {
-        return;
-    }
-    const QList<QBluetoothUuid> uuids = {
-        GattUuids::CharManufacturerName,
-        GattUuids::CharModelNumber,
-        GattUuids::CharFirmwareRevision,
-        GattUuids::CharHardwareRevision
-    };
-    for (const auto &uuid : uuids) {
-        const auto ch = m_deviceInfoService->characteristic(uuid);
-        if (ch.isValid()) {
-            m_deviceInfoService->readCharacteristic(ch);
-        }
-    }
+    advanceServiceDiscovery(m_batteryService);
 }
 
 void BleWatchManager::onImmediateAlertServiceStateChanged(QLowEnergyService::ServiceState newState) {
+    if (newState == QLowEnergyService::InvalidService) {
+        advanceServiceDiscovery(m_immediateAlertService);
+        return;
+    }
     if (newState != QLowEnergyService::RemoteServiceDiscovered || !m_immediateAlertService) {
         return;
     }
     m_alertLevelChar = m_immediateAlertService->characteristic(GattUuids::CharAlertLevel);
+    advanceServiceDiscovery(m_immediateAlertService);
 }
 
 void BleWatchManager::onHeartRateServiceStateChanged(QLowEnergyService::ServiceState newState) {
+    if (newState == QLowEnergyService::InvalidService) {
+        advanceServiceDiscovery(m_heartRateService);
+        return;
+    }
     if (newState != QLowEnergyService::RemoteServiceDiscovered || !m_heartRateService) {
         return;
     }
     m_heartRateChar = m_heartRateService->characteristic(GattUuids::CharHeartRateMeasurement);
-    if (m_heartRateChar.isValid() && (m_heartRateChar.properties() & QLowEnergyCharacteristic::Notify)) {
-        subscribeToNotify(m_heartRateService, m_heartRateChar);
+    if (m_heartRateChar.isValid()
+        && (m_heartRateChar.properties() & (QLowEnergyCharacteristic::Notify | QLowEnergyCharacteristic::Indicate))) {
+        enqueueSubscribeToNotify(m_heartRateService, m_heartRateChar, tr("Enable HR Notify"));
     }
+    advanceServiceDiscovery(m_heartRateService);
 }
 
 void BleWatchManager::onPulseOximeterServiceStateChanged(QLowEnergyService::ServiceState newState) {
+    if (newState == QLowEnergyService::InvalidService) {
+        advanceServiceDiscovery(m_pulseOximeterService);
+        return;
+    }
     if (newState != QLowEnergyService::RemoteServiceDiscovered || !m_pulseOximeterService) {
         return;
     }
@@ -503,15 +660,192 @@ void BleWatchManager::onPulseOximeterServiceStateChanged(QLowEnergyService::Serv
     if (!m_spo2Char.isValid()) {
         m_spo2Char = m_pulseOximeterService->characteristic(GattUuids::CharPlxSpotCheck);
     }
-    if (m_spo2Char.isValid() && (m_spo2Char.properties() & (QLowEnergyCharacteristic::Notify | QLowEnergyCharacteristic::Indicate))) {
-        subscribeToNotify(m_pulseOximeterService, m_spo2Char);
+    if (m_spo2Char.isValid()
+        && (m_spo2Char.properties() & (QLowEnergyCharacteristic::Notify | QLowEnergyCharacteristic::Indicate))) {
+        enqueueSubscribeToNotify(m_pulseOximeterService, m_spo2Char, tr("Enable SpO2 Notify"));
+    }
+    advanceServiceDiscovery(m_pulseOximeterService);
+}
+
+void BleWatchManager::enqueueReadChar(QLowEnergyService *service,
+                                      const QLowEnergyCharacteristic &characteristic,
+                                      const QString &label) {
+    if (!service || !characteristic.isValid()) {
+        return;
+    }
+    GattOp op;
+    op.type = GattOp::Type::ReadChar;
+    op.service = service;
+    op.characteristic = characteristic;
+    op.label = label;
+    op.postDelayMs = 35;
+    m_gattOpQueue.enqueue(op);
+
+    if (!m_initializingGatt && !m_gattOpInFlight && !m_gattOpTimer.isActive()) {
+        processGattOpQueue();
     }
 }
 
-void BleWatchManager::subscribeToNotify(QLowEnergyService *service, const QLowEnergyCharacteristic &characteristic) {
+void BleWatchManager::enqueueSubscribeToNotify(QLowEnergyService *service,
+                                               const QLowEnergyCharacteristic &characteristic,
+                                               const QString &label) {
+    if (!service || !characteristic.isValid()) {
+        return;
+    }
     const auto cccd = characteristic.descriptor(QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration);
-    if (cccd.isValid()) {
-        service->writeDescriptor(cccd, QByteArray::fromHex("0100"));
+    if (!cccd.isValid()) {
+        return;
+    }
+    const bool supportsNotify = (characteristic.properties() & QLowEnergyCharacteristic::Notify) != 0;
+    const QByteArray enableValue = supportsNotify ? QByteArray::fromHex("0100") : QByteArray::fromHex("0200");
+
+    GattOp op;
+    op.type = GattOp::Type::WriteDescriptor;
+    op.service = service;
+    op.characteristic = characteristic;
+    op.descriptor = cccd;
+    op.value = enableValue;
+    op.label = label;
+    op.postDelayMs = 40;
+    m_gattOpQueue.enqueue(op);
+
+    if (!m_initializingGatt && !m_gattOpInFlight && !m_gattOpTimer.isActive()) {
+        processGattOpQueue();
+    }
+}
+
+void BleWatchManager::processGattOpQueue() {
+    if (m_gattOpInFlight || m_gattOpTimer.isActive()) {
+        return;
+    }
+
+    while (!m_gattOpQueue.isEmpty()) {
+        GattOp op = m_gattOpQueue.dequeue();
+        if (!op.service) {
+            continue;
+        }
+
+        m_activeGattOp = op;
+        m_gattOpInFlight = true;
+
+        if (op.type == GattOp::Type::ReadChar) {
+            if (!op.characteristic.isValid()) {
+                finishActiveGattOp(10);
+                return;
+            }
+            m_gattOpTimeoutTimer.start(1500);
+            op.service->readCharacteristic(op.characteristic);
+            return;
+        }
+
+        if (op.type == GattOp::Type::WriteDescriptor) {
+            if (!op.descriptor.isValid()) {
+                finishActiveGattOp(10);
+                return;
+            }
+            m_gattOpTimeoutTimer.start(1500);
+            op.service->writeDescriptor(op.descriptor, op.value);
+            return;
+        }
+
+        if (op.type == GattOp::Type::WriteChar) {
+            if (!op.characteristic.isValid()) {
+                finishActiveGattOp(10);
+                return;
+            }
+            if (op.writeMode == QLowEnergyService::WriteWithResponse) {
+                m_gattOpTimeoutTimer.start(1500);
+                op.service->writeCharacteristic(op.characteristic, op.value, QLowEnergyService::WriteWithResponse);
+            } else {
+                op.service->writeCharacteristic(op.characteristic, op.value, QLowEnergyService::WriteWithoutResponse);
+                finishActiveGattOp(op.postDelayMs);
+            }
+            return;
+        }
+    }
+
+    // Queue drained: if initial GATT discovery + setup just finished, transition to Connected!
+    if (m_initializingGatt) {
+        m_initializingGatt = false;
+        const auto activeVer = FeeaCodec::resolveVersion(m_detectedProtocol, m_protocolPref);
+        emit packetLogged(QStringLiteral("system"),
+                          tr("GATT Ready"),
+                          FeeaCodec::versionLabel(activeVer),
+                          m_dataOutChar.isValid() ? tr("TX 0xFEE2 ready") : tr("TX characteristic unavailable"),
+                          0,
+                          m_dataOutChar.isValid() ? QStringLiteral("ack") : QStringLiteral("error"));
+        setState(ConnectionState::Connected);
+    }
+}
+
+void BleWatchManager::finishActiveGattOp(int delayMs) {
+    m_gattOpTimeoutTimer.stop();
+    m_gattOpInFlight = false;
+    const int wait = std::max(10, delayMs);
+    m_gattOpTimer.start(wait);
+}
+
+void BleWatchManager::onGattOpTimeout() {
+    if (!m_gattOpInFlight) {
+        return;
+    }
+    emit packetLogged(QStringLiteral("system"),
+                      tr("GATT Op Timeout: %1").arg(m_activeGattOp.label),
+                      FeeaCodec::versionLabel(FeeaCodec::resolveVersion(m_detectedProtocol, m_protocolPref)),
+                      FeeaCodec::toHexString(m_activeGattOp.value),
+                      0,
+                      QStringLiteral("error"));
+    finishActiveGattOp(30);
+}
+
+void BleWatchManager::onCharacteristicWritten(const QLowEnergyCharacteristic &characteristic, const QByteArray &value) {
+    Q_UNUSED(value)
+    if (m_gattOpInFlight
+        && m_activeGattOp.type == GattOp::Type::WriteChar
+        && m_activeGattOp.characteristic.uuid() == characteristic.uuid()) {
+        finishActiveGattOp(m_activeGattOp.postDelayMs);
+    }
+}
+
+void BleWatchManager::onDescriptorWritten(const QLowEnergyDescriptor &descriptor, const QByteArray &value) {
+    Q_UNUSED(descriptor)
+    Q_UNUSED(value)
+    if (m_gattOpInFlight && m_activeGattOp.type == GattOp::Type::WriteDescriptor) {
+        finishActiveGattOp(m_activeGattOp.postDelayMs);
+    }
+}
+
+void BleWatchManager::onServiceError(QLowEnergyService::ServiceError error) {
+    if (error == QLowEnergyService::NoError) {
+        return;
+    }
+    emit packetLogged(QStringLiteral("system"),
+                      tr("GATT Error (%1)").arg(static_cast<int>(error)),
+                      FeeaCodec::versionLabel(FeeaCodec::resolveVersion(m_detectedProtocol, m_protocolPref)),
+                      m_activeGattOp.label,
+                      0,
+                      QStringLiteral("error"));
+    if (m_gattOpInFlight) {
+        finishActiveGattOp(40);
+    }
+}
+
+void BleWatchManager::handleParsedHealth(const ParsedHealthPacket &parsed) {
+    if (!parsed.valid) {
+        return;
+    }
+    if (parsed.hasSteps) {
+        emit activityDataReceived(parsed.dayOffset, parsed.steps, parsed.distanceMeters);
+    }
+    if (parsed.hasHeartRate) {
+        emit heartRateReceived(parsed.heartRateBpm);
+    }
+    if (parsed.hasSpo2) {
+        emit spo2Received(parsed.spo2Percent);
+    }
+    if (parsed.hasBattery && parsed.batteryPercent >= 0 && parsed.batteryPercent <= 100) {
+        m_batteryLevel = parsed.batteryPercent;
+        emit batteryLevelChanged(m_batteryLevel);
     }
 }
 
@@ -519,22 +853,40 @@ void BleWatchManager::onCharacteristicRead(const QLowEnergyCharacteristic &chara
     if (characteristic.uuid() == GattUuids::CharBatteryLevel && !value.isEmpty()) {
         m_batteryLevel = static_cast<uint8_t>(value.at(0));
         emit batteryLevelChanged(m_batteryLevel);
-        return;
+    } else if (characteristic.uuid() == GattUuids::CharActivity) {
+        emit packetLogged(QStringLiteral("rx"),
+                          tr("Activity Telemetry (0xFEE1)"),
+                          FeeaCodec::versionLabel(FeeaCodec::resolveVersion(m_detectedProtocol, m_protocolPref)),
+                          FeeaCodec::toHexString(value),
+                          1,
+                          QStringLiteral("ack"));
+        handleParsedHealth(FeeaCodec::parseFee1Activity(value));
+    } else {
+        QByteArray cleaned = value;
+        cleaned.replace('\0', QByteArray());
+        const QString text = QString::fromUtf8(cleaned).trimmed();
+        if (characteristic.uuid() == GattUuids::CharManufacturerName) {
+            m_deviceInfo[QStringLiteral("manufacturer")] = text;
+            m_detectedProtocol = FeeaCodec::detectFromManufacturer(text);
+            emit protocolChanged();
+            emit deviceInfoChanged();
+        } else if (characteristic.uuid() == GattUuids::CharModelNumber) {
+            m_deviceInfo[QStringLiteral("model")] = text;
+            emit deviceInfoChanged();
+        } else if (characteristic.uuid() == GattUuids::CharFirmwareRevision) {
+            m_deviceInfo[QStringLiteral("firmware")] = text;
+            emit deviceInfoChanged();
+        } else if (characteristic.uuid() == GattUuids::CharHardwareRevision) {
+            m_deviceInfo[QStringLiteral("hardware")] = text;
+            emit deviceInfoChanged();
+        }
     }
 
-    const QString text = QString::fromUtf8(value).trimmed();
-    if (characteristic.uuid() == GattUuids::CharManufacturerName) {
-        m_deviceInfo[QStringLiteral("manufacturer")] = text;
-        m_detectedProtocol = FeeaCodec::detectFromManufacturer(text);
-        emit protocolChanged();
-    } else if (characteristic.uuid() == GattUuids::CharModelNumber) {
-        m_deviceInfo[QStringLiteral("model")] = text;
-    } else if (characteristic.uuid() == GattUuids::CharFirmwareRevision) {
-        m_deviceInfo[QStringLiteral("firmware")] = text;
-    } else if (characteristic.uuid() == GattUuids::CharHardwareRevision) {
-        m_deviceInfo[QStringLiteral("hardware")] = text;
+    if (m_gattOpInFlight
+        && m_activeGattOp.type == GattOp::Type::ReadChar
+        && m_activeGattOp.characteristic.uuid() == characteristic.uuid()) {
+        finishActiveGattOp(m_activeGattOp.postDelayMs);
     }
-    emit deviceInfoChanged();
 }
 
 void BleWatchManager::onCharacteristicChanged(const QLowEnergyCharacteristic &characteristic, const QByteArray &value) {
@@ -561,26 +913,49 @@ void BleWatchManager::onCharacteristicChanged(const QLowEnergyCharacteristic &ch
         return;
     }
 
-    if (characteristic.uuid() == m_dataInChar.uuid()) {
+    if (characteristic.uuid() == GattUuids::CharActivity) {
         emit packetLogged(QStringLiteral("rx"),
-                          tr("Watch Response"),
+                          tr("Activity Update (0xFEE1)"),
                           FeeaCodec::versionLabel(FeeaCodec::resolveVersion(m_detectedProtocol, m_protocolPref)),
                           FeeaCodec::toHexString(value),
                           1,
                           QStringLiteral("ack"));
+        handleParsedHealth(FeeaCodec::parseFee1Activity(value));
+        return;
+    }
 
-        const ParsedHealthPacket parsed = FeeaCodec::parseFeeaHealthResponse(value);
-        if (parsed.valid) {
-            if (parsed.hasSteps) {
-                emit activityDataReceived(parsed.dayOffset, parsed.steps, parsed.distanceMeters);
-            }
-            if (parsed.hasHeartRate) {
-                emit heartRateReceived(parsed.heartRateBpm);
-            }
-            if (parsed.hasSpo2) {
-                emit spo2Received(parsed.spo2Percent);
-            }
-        }
+    // Incoming notification on 0xFEE3 (or auxiliary 0xFEEA notify characteristic)
+    emit packetLogged(QStringLiteral("rx"),
+                      tr("Watch Response"),
+                      FeeaCodec::versionLabel(FeeaCodec::resolveVersion(m_detectedProtocol, m_protocolPref)),
+                      FeeaCodec::toHexString(value),
+                      1,
+                      QStringLiteral("ack"));
+
+    // Auto-learn V1 vs V2 from the watch's own 0xFE 0xEA frame header if not already known
+    const auto frameVer = FeeaCodec::detectFromIncomingFrame(value);
+    if (frameVer != ProtocolVersion::Unknown && m_detectedProtocol == ProtocolVersion::Unknown) {
+        m_detectedProtocol = frameVer;
+        emit protocolChanged();
+    }
+
+    // Reassemble multi-chunk 0xFEEA frames when response exceeds 20-byte BLE MTU
+    const int expLen = FeeaCodec::expectedFrameLength(value);
+    if (expLen > 0) {
+        m_rxAssemblyBuffer = value;
+        m_rxExpectedLength = expLen;
+    } else if (!m_rxAssemblyBuffer.isEmpty() && m_rxExpectedLength > 0) {
+        m_rxAssemblyBuffer.append(value);
+    } else {
+        handleParsedHealth(FeeaCodec::parseFeeaHealthResponse(value));
+        return;
+    }
+
+    if (m_rxExpectedLength > 0 && m_rxAssemblyBuffer.size() >= m_rxExpectedLength) {
+        const QByteArray completeFrame = m_rxAssemblyBuffer.left(m_rxExpectedLength);
+        m_rxAssemblyBuffer.clear();
+        m_rxExpectedLength = 0;
+        handleParsedHealth(FeeaCodec::parseFeeaHealthResponse(completeFrame));
     }
 }
 
@@ -590,14 +965,21 @@ bool BleWatchManager::enqueuePacket(const QByteArray &packet, const QString &act
         return false;
     }
 
+    const auto mode = (m_dataOutChar.properties() & QLowEnergyCharacteristic::WriteNoResponse)
+        ? QLowEnergyService::WriteWithoutResponse
+        : QLowEnergyService::WriteWithResponse;
+
     const auto chunks = FeeaCodec::chunkPacket(packet, m_mtuSize);
-    for (int i = 0; i < chunks.size(); ++i) {
-        QueuedWrite item;
-        item.chunk = chunks.at(i);
-        item.actionLabel = actionLabel;
-        item.chunkIndex = i;
-        item.totalChunks = chunks.size();
-        m_writeQueue.enqueue(item);
+    for (const auto &chunk : chunks) {
+        GattOp op;
+        op.type = GattOp::Type::WriteChar;
+        op.service = m_feeaService;
+        op.characteristic = m_dataOutChar;
+        op.value = chunk;
+        op.writeMode = mode;
+        op.label = actionLabel;
+        op.postDelayMs = m_writeDelayMs;
+        m_gattOpQueue.enqueue(op);
     }
 
     const auto activeVersion = FeeaCodec::resolveVersion(m_detectedProtocol, m_protocolPref);
@@ -608,27 +990,10 @@ bool BleWatchManager::enqueuePacket(const QByteArray &packet, const QString &act
                       chunks.size(),
                       QStringLiteral("sent"));
 
-    if (!m_writeTimer.isActive()) {
-        processWriteQueue();
+    if (!m_gattOpInFlight && !m_gattOpTimer.isActive()) {
+        processGattOpQueue();
     }
     return true;
-}
-
-void BleWatchManager::processWriteQueue() {
-    if (m_writeQueue.isEmpty() || !m_feeaService || !m_dataOutChar.isValid()) {
-        return;
-    }
-
-    const QueuedWrite next = m_writeQueue.dequeue();
-    const auto mode = (m_dataOutChar.properties() & QLowEnergyCharacteristic::WriteNoResponse)
-        ? QLowEnergyService::WriteWithoutResponse
-        : QLowEnergyService::WriteWithResponse;
-
-    m_feeaService->writeCharacteristic(m_dataOutChar, next.chunk, mode);
-
-    if (!m_writeQueue.isEmpty()) {
-        m_writeTimer.start(m_writeDelayMs);
-    }
 }
 
 bool BleWatchManager::sendSyncTime(const QDateTime &dateTime, int utcOffsetMinutes) {
@@ -654,20 +1019,29 @@ bool BleWatchManager::sendFindWatch() {
     const QByteArray packet = FeeaCodec::encodeFindWatch(version);
     const bool sent = enqueuePacket(packet, tr("Find Watch"));
 
-    // Also ping standard BLE Immediate Alert (0x1802) if the watch exposes it
+    // Also ping standard BLE Immediate Alert (0x1802) through the serialized GATT queue if present
     if (m_immediateAlertService && m_alertLevelChar.isValid()) {
-        m_immediateAlertService->writeCharacteristic(
-            m_alertLevelChar,
-            QByteArray(1, static_cast<char>(0x02)),
-            QLowEnergyService::WriteWithoutResponse
-        );
+        GattOp op;
+        op.type = GattOp::Type::WriteChar;
+        op.service = m_immediateAlertService;
+        op.characteristic = m_alertLevelChar;
+        op.value = QByteArray(1, static_cast<char>(0x02));
+        op.writeMode = (m_alertLevelChar.properties() & QLowEnergyCharacteristic::WriteNoResponse)
+            ? QLowEnergyService::WriteWithoutResponse
+            : QLowEnergyService::WriteWithResponse;
+        op.label = tr("Immediate Alert");
+        op.postDelayMs = 40;
+        m_gattOpQueue.enqueue(op);
+        if (!m_gattOpInFlight && !m_gattOpTimer.isActive()) {
+            processGattOpQueue();
+        }
     }
     return sent;
 }
 
 void BleWatchManager::refreshBattery() {
     if (m_batteryService && m_batteryChar.isValid()) {
-        m_batteryService->readCharacteristic(m_batteryChar);
+        enqueueReadChar(m_batteryService, m_batteryChar, tr("Refresh Battery"));
     }
 }
 
@@ -676,8 +1050,20 @@ bool BleWatchManager::requestHealthSync() {
         emit errorOccurred(tr("Connect a watch before refreshing activity data."));
         return false;
     }
+
+    // 1. Read live telemetry characteristics directly if exposed by the watch
+    if (m_activityChar.isValid() && (m_activityChar.properties() & QLowEnergyCharacteristic::Read)) {
+        enqueueReadChar(m_feeaService, m_activityChar, tr("Read Activity (0xFEE1)"));
+    }
+    if (m_batteryService && m_batteryChar.isValid()) {
+        enqueueReadChar(m_batteryService, m_batteryChar, tr("Read Battery"));
+    }
+
+    // 2. Query daily activity (today + recent days), heart rate, and SpO2 over 0xFEE2
     const auto version = FeeaCodec::resolveVersion(m_detectedProtocol, m_protocolPref);
-    const bool okSteps = enqueuePacket(FeeaCodec::encodeSyncActivity(version, 0), tr("Sync Activity (0x51)"));
+    const bool okSteps = enqueuePacket(FeeaCodec::encodeSyncActivity(version, 0), tr("Sync Activity Today (0x51)"));
+    enqueuePacket(FeeaCodec::encodeSyncActivity(version, 1), tr("Sync Activity Yesterday (0x51)"));
+    enqueuePacket(FeeaCodec::encodeSyncActivity(version, 2), tr("Sync Activity -2d (0x51)"));
     enqueuePacket(FeeaCodec::encodeSyncHeartRate(version), tr("Sync Heart Rate (0x6B)"));
     enqueuePacket(FeeaCodec::encodeSyncSpo2(version), tr("Sync SpO2 (0x70)"));
     return okSteps;

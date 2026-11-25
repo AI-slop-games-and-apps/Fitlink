@@ -2,8 +2,74 @@
 
 #include <QtEndian>
 #include <algorithm>
+#include <cmath>
 
 namespace fitlink {
+
+namespace {
+
+int readUint24BE(const QByteArray &buf, int offset) {
+    return (static_cast<uint8_t>(buf.at(offset)) << 16)
+        | (static_cast<uint8_t>(buf.at(offset + 1)) << 8)
+        | static_cast<uint8_t>(buf.at(offset + 2));
+}
+
+int readUint24LE(const QByteArray &buf, int offset) {
+    return static_cast<uint8_t>(buf.at(offset))
+        | (static_cast<uint8_t>(buf.at(offset + 1)) << 8)
+        | (static_cast<uint8_t>(buf.at(offset + 2)) << 16);
+}
+
+bool decodeStepsAndDistance(const QByteArray &buf, int offset, int &stepsOut, int &distOut) {
+    if (buf.size() < offset + 3) {
+        return false;
+    }
+
+    const int stepsBE = readUint24BE(buf, offset);
+    const int stepsLE = readUint24LE(buf, offset);
+
+    const bool beStepsOk = (stepsBE >= 0 && stepsBE <= 200000);
+    const bool leStepsOk = (stepsLE >= 0 && stepsLE <= 200000);
+
+    bool useBE = true;
+    if (beStepsOk && !leStepsOk) {
+        useBE = true;
+    } else if (leStepsOk && !beStepsOk) {
+        useBE = false;
+    } else if (!beStepsOk && !leStepsOk) {
+        return false;
+    } else if (buf.size() >= offset + 6) {
+        const int distBE = readUint24BE(buf, offset + 3);
+        const int distLE = readUint24LE(buf, offset + 3);
+        const bool beDistOk = (distBE >= 0 && distBE <= 250000);
+        const bool leDistOk = (distLE >= 0 && distLE <= 250000);
+        if (leDistOk && !beDistOk) {
+            useBE = false;
+        }
+    }
+
+    stepsOut = useBE ? stepsBE : stepsLE;
+
+    if (buf.size() >= offset + 6) {
+        const int dist = useBE ? readUint24BE(buf, offset + 3) : readUint24LE(buf, offset + 3);
+        if (dist >= 0 && dist <= 250000) {
+            distOut = (dist == 0 && stepsOut > 0) ? static_cast<int>(std::lround(stepsOut * 0.75)) : dist;
+            return true;
+        }
+    }
+    if (buf.size() >= offset + 5) {
+        const int dist16 = useBE
+            ? ((static_cast<uint8_t>(buf.at(offset + 3)) << 8) | static_cast<uint8_t>(buf.at(offset + 4)))
+            : (static_cast<uint8_t>(buf.at(offset + 3)) | (static_cast<uint8_t>(buf.at(offset + 4)) << 8));
+        distOut = (dist16 == 0 && stepsOut > 0) ? static_cast<int>(std::lround(stepsOut * 0.75)) : dist16;
+        return true;
+    }
+
+    distOut = static_cast<int>(std::lround(stepsOut * 0.75));
+    return true;
+}
+
+} // namespace
 
 ProtocolVersion FeeaCodec::detectFromManufacturer(const QString &manufacturerName) {
     const QString normalized = manufacturerName.trimmed().toUpper();
@@ -14,6 +80,24 @@ ProtocolVersion FeeaCodec::detectFromManufacturer(const QString &manufacturerNam
         return ProtocolVersion::V2;
     }
     return ProtocolVersion::V1;
+}
+
+ProtocolVersion FeeaCodec::detectFromIncomingFrame(const QByteArray &frame) {
+    if (frame.size() < 4) {
+        return ProtocolVersion::Unknown;
+    }
+    if (static_cast<uint8_t>(frame.at(0)) != HeaderByte0
+        || static_cast<uint8_t>(frame.at(1)) != HeaderByte1) {
+        return ProtocolVersion::Unknown;
+    }
+    const uint8_t highNibble = static_cast<uint8_t>(frame.at(2)) & 0xF0;
+    if (highNibble == V1Prefix) {
+        return ProtocolVersion::V1;
+    }
+    if (highNibble == V2Prefix) {
+        return ProtocolVersion::V2;
+    }
+    return ProtocolVersion::Unknown;
 }
 
 ProtocolVersion FeeaCodec::resolveVersion(ProtocolVersion detected, ProtocolPreference pref) {
@@ -37,46 +121,63 @@ QString FeeaCodec::versionLabel(ProtocolVersion version) {
     }
 }
 
-QByteArray FeeaCodec::framePacket(ProtocolVersion version, uint8_t command, const QByteArray &payload) {
-    QByteArray out;
-    if (version == ProtocolVersion::V1) {
-        // V1 frame: [0xFE] [0xEA] [0x10] [totalLen] [cmd] [payload...]
-        const uint8_t totalLen = static_cast<uint8_t>(std::min<qsizetype>(255, 5 + payload.size()));
-        out.reserve(totalLen);
-        out.append(static_cast<char>(HeaderByte0));
-        out.append(static_cast<char>(HeaderByte1));
-        out.append(static_cast<char>(V1Marker));
-        out.append(static_cast<char>(totalLen));
-        out.append(static_cast<char>(command));
-        out.append(payload);
-    } else {
-        // V2 frame: [0xFE] [0xEA] [len_lo] [len_hi] [cmd] [payload...]
-        const uint16_t totalLen = static_cast<uint16_t>(5 + payload.size());
-        out.reserve(totalLen);
-        out.append(static_cast<char>(HeaderByte0));
-        out.append(static_cast<char>(HeaderByte1));
-        out.append(static_cast<char>(totalLen & 0xFF));
-        out.append(static_cast<char>((totalLen >> 8) & 0xFF));
-        out.append(static_cast<char>(command));
-        out.append(payload);
+int FeeaCodec::expectedFrameLength(const QByteArray &chunk) {
+    if (chunk.size() < 4) {
+        return -1;
     }
+    if (static_cast<uint8_t>(chunk.at(0)) != HeaderByte0
+        || static_cast<uint8_t>(chunk.at(1)) != HeaderByte1) {
+        return -1;
+    }
+    const uint8_t b2 = static_cast<uint8_t>(chunk.at(2));
+    const uint8_t b3 = static_cast<uint8_t>(chunk.at(3));
+    const uint8_t prefix = b2 & 0xF0;
+    if (prefix == V1Prefix || prefix == V2Prefix) {
+        const int len = ((b2 & 0x0F) << 8) | b3;
+        return (len >= 5 && len <= 2048) ? len : -1;
+    }
+    return -1;
+}
+
+QByteArray FeeaCodec::framePacket(ProtocolVersion version, uint8_t command, const QByteArray &payload) {
+    // Verified 0xFEEA wire format:
+    //   V1: [0xFE] [0xEA] [0x10 + size_hi] [size_lo] [cmd] [payload...]
+    //   V2: [0xFE] [0xEA] [0x20 + size_hi] [size_lo] [cmd] [payload...]
+    // Total size includes header (2), size (2), command (1), and payload (N) => min 5 bytes.
+    const uint16_t totalLen = static_cast<uint16_t>(std::min<qsizetype>(4095, 5 + payload.size()));
+    const uint8_t versionPrefix = (version == ProtocolVersion::V1) ? V1Prefix : V2Prefix;
+    const uint8_t sizeHi = static_cast<uint8_t>(versionPrefix + ((totalLen >> 8) & 0x0F));
+    const uint8_t sizeLo = static_cast<uint8_t>(totalLen & 0xFF);
+
+    QByteArray out;
+    out.reserve(totalLen);
+    out.append(static_cast<char>(HeaderByte0));
+    out.append(static_cast<char>(HeaderByte1));
+    out.append(static_cast<char>(sizeHi));
+    out.append(static_cast<char>(sizeLo));
+    out.append(static_cast<char>(command));
+    out.append(payload);
     return out;
 }
 
 QByteArray FeeaCodec::encodeSyncTime(ProtocolVersion version, const QDateTime &dateTime, int utcOffsetMinutes) {
-    // 0x31 payload: 4-byte uint32 epoch seconds (big-endian) + 1-byte timezone hours + 1-byte quarter-hour offset
-    const uint32_t epochSec = static_cast<uint32_t>(dateTime.toSecsSinceEpoch());
-    const int8_t tzHours = static_cast<int8_t>(std::clamp(utcOffsetMinutes / 60, -12, 14));
-    const uint8_t tzQuarterRemainder = static_cast<uint8_t>((std::abs(utcOffsetMinutes) % 60) / 15);
+    // Verified 0x31 payload (5 bytes, totalLen = 10 / 0x0A):
+    //   [epochSec BE (4 bytes)] [tzHours signed int8 (1 byte)]
+    // For fractional-hour timezones (e.g., UTC+5:30), fold the minute remainder into epochSec
+    // so the watch displays exact local time while preserving the strict 10-byte wire frame.
+    const int tzHoursInt = std::clamp(utcOffsetMinutes / 60, -12, 14);
+    const int remainderMinutes = utcOffsetMinutes - (tzHoursInt * 60);
+    const qint64 adjustedEpoch = dateTime.toSecsSinceEpoch() + static_cast<qint64>(remainderMinutes) * 60;
+    const uint32_t epochSec = static_cast<uint32_t>(std::max<qint64>(0, adjustedEpoch));
+    const int8_t tzHours = static_cast<int8_t>(tzHoursInt);
 
     QByteArray payload;
-    payload.reserve(6);
+    payload.reserve(5);
     payload.append(static_cast<char>((epochSec >> 24) & 0xFF));
     payload.append(static_cast<char>((epochSec >> 16) & 0xFF));
     payload.append(static_cast<char>((epochSec >> 8) & 0xFF));
     payload.append(static_cast<char>(epochSec & 0xFF));
     payload.append(static_cast<char>(tzHours));
-    payload.append(static_cast<char>(tzQuarterRemainder));
 
     return framePacket(version, CmdSetTime, payload);
 }
@@ -127,14 +228,13 @@ QByteArray FeeaCodec::encodeNotification(ProtocolVersion version,
 }
 
 QByteArray FeeaCodec::encodeFindWatch(ProtocolVersion version) {
-    QByteArray payload;
-    payload.append(static_cast<char>(0x01));
-    return framePacket(version, CmdFindWatch, payload);
+    // Verified 0x61 Find Watch frame uses an empty payload (totalLen = 5: FE EA 10/20 05 61)
+    return framePacket(version, CmdFindWatch, QByteArray());
 }
 
 QByteArray FeeaCodec::encodeSyncActivity(ProtocolVersion version, uint8_t dayOffset) {
     QByteArray payload;
-    payload.append(static_cast<char>(dayOffset));
+    payload.append(static_cast<char>(std::min<uint8_t>(6, dayOffset)));
     return framePacket(version, CmdSyncActivity, payload);
 }
 
@@ -148,6 +248,62 @@ QByteArray FeeaCodec::encodeSyncSpo2(ProtocolVersion version) {
     QByteArray payload;
     payload.append(static_cast<char>(0x01));
     return framePacket(version, CmdSyncSpo2, payload);
+}
+
+ParsedHealthPacket FeeaCodec::parseFee1Activity(const QByteArray &value) {
+    ParsedHealthPacket out;
+    if (value.isEmpty()) {
+        return out;
+    }
+    if (value.size() >= 6
+        && static_cast<uint8_t>(value.at(0)) == HeaderByte0
+        && static_cast<uint8_t>(value.at(1)) == HeaderByte1) {
+        return parseFeeaHealthResponse(value);
+    }
+
+    int steps = 0;
+    int dist = 0;
+    if (value.size() >= 6 && decodeStepsAndDistance(value, 0, steps, dist)) {
+        out.valid = true;
+        out.hasSteps = true;
+        out.steps = steps;
+        out.hasDistanceMeters = true;
+        out.distanceMeters = dist;
+        out.dayOffset = 0;
+        return out;
+    }
+
+    if (value.size() >= 4) {
+        const uint32_t sLE = static_cast<uint32_t>(static_cast<uint8_t>(value.at(0)))
+            | (static_cast<uint32_t>(static_cast<uint8_t>(value.at(1))) << 8)
+            | (static_cast<uint32_t>(static_cast<uint8_t>(value.at(2))) << 16)
+            | (static_cast<uint32_t>(static_cast<uint8_t>(value.at(3))) << 24);
+        const uint32_t sBE = (static_cast<uint32_t>(static_cast<uint8_t>(value.at(0))) << 24)
+            | (static_cast<uint32_t>(static_cast<uint8_t>(value.at(1))) << 16)
+            | (static_cast<uint32_t>(static_cast<uint8_t>(value.at(2))) << 8)
+            | static_cast<uint32_t>(static_cast<uint8_t>(value.at(3)));
+        const int chosen = (sLE <= 200000) ? static_cast<int>(sLE)
+            : ((sBE <= 200000) ? static_cast<int>(sBE) : -1);
+        if (chosen >= 0) {
+            out.valid = true;
+            out.hasSteps = true;
+            out.steps = chosen;
+            out.hasDistanceMeters = true;
+            out.distanceMeters = static_cast<int>(std::lround(chosen * 0.75));
+            out.dayOffset = 0;
+            return out;
+        }
+    } else if (value.size() == 3 && decodeStepsAndDistance(value, 0, steps, dist)) {
+        out.valid = true;
+        out.hasSteps = true;
+        out.steps = steps;
+        out.hasDistanceMeters = true;
+        out.distanceMeters = dist;
+        out.dayOffset = 0;
+        return out;
+    }
+
+    return out;
 }
 
 ParsedHealthPacket FeeaCodec::parseFeeaHealthResponse(const QByteArray &frame) {
@@ -164,38 +320,26 @@ ParsedHealthPacket FeeaCodec::parseFeeaHealthResponse(const QByteArray &frame) {
     const uint8_t cmd = static_cast<uint8_t>(frame.at(4));
     const QByteArray payload = frame.mid(5);
 
-    if (cmd == CmdSyncActivity && payload.size() >= 3) {
-        // Common 0x51 layout: [dayOffset?, steps (3-byte big-endian), distanceMeters (2- or 3-byte big-endian)]
+    if ((cmd == CmdSyncActivity || cmd == CmdSyncActivityHist || cmd == 0x09) && payload.size() >= 3) {
         int offset = 0;
         if (payload.size() >= 7 && static_cast<uint8_t>(payload.at(0)) <= 6) {
             out.dayOffset = static_cast<uint8_t>(payload.at(0));
             offset = 1;
         }
-        const int steps = (static_cast<uint8_t>(payload.at(offset)) << 16)
-            | (static_cast<uint8_t>(payload.at(offset + 1)) << 8)
-            | static_cast<uint8_t>(payload.at(offset + 2));
-        out.hasSteps = true;
-        out.steps = std::max(0, steps);
-        if (payload.size() >= offset + 6) {
-            const int dist = (static_cast<uint8_t>(payload.at(offset + 3)) << 16)
-                | (static_cast<uint8_t>(payload.at(offset + 4)) << 8)
-                | static_cast<uint8_t>(payload.at(offset + 5));
+        int steps = 0;
+        int dist = 0;
+        if (decodeStepsAndDistance(payload, offset, steps, dist)) {
+            out.hasSteps = true;
+            out.steps = steps;
             out.hasDistanceMeters = true;
-            out.distanceMeters = std::max(0, dist);
-        } else if (payload.size() >= offset + 5) {
-            const int dist = (static_cast<uint8_t>(payload.at(offset + 3)) << 8)
-                | static_cast<uint8_t>(payload.at(offset + 4));
-            out.hasDistanceMeters = true;
-            out.distanceMeters = std::max(0, dist);
-        } else {
-            out.hasDistanceMeters = true;
-            out.distanceMeters = static_cast<int>(out.steps * 0.75);
+            out.distanceMeters = dist;
+            out.valid = true;
+            return out;
         }
-        out.valid = true;
-        return out;
     }
 
-    if (cmd == CmdSyncHeartRate && !payload.isEmpty()) {
+    if ((cmd == CmdSyncHeartRate || cmd == 0x6A || cmd == 0x69 || cmd == 0x6D || cmd == 0x0A)
+        && !payload.isEmpty()) {
         for (int i = payload.size() - 1; i >= 0; --i) {
             const int candidate = static_cast<uint8_t>(payload.at(i));
             if (candidate >= 30 && candidate <= 220) {
@@ -207,7 +351,8 @@ ParsedHealthPacket FeeaCodec::parseFeeaHealthResponse(const QByteArray &frame) {
         }
     }
 
-    if (cmd == CmdSyncSpo2 && !payload.isEmpty()) {
+    if ((cmd == CmdSyncSpo2 || cmd == 0x72 || cmd == 0x73 || cmd == 0x80 || cmd == 0x82 || cmd == 0x0B)
+        && !payload.isEmpty()) {
         for (int i = payload.size() - 1; i >= 0; --i) {
             const int candidate = static_cast<uint8_t>(payload.at(i));
             if (candidate >= 70 && candidate <= 100) {
@@ -216,6 +361,16 @@ ParsedHealthPacket FeeaCodec::parseFeeaHealthResponse(const QByteArray &frame) {
                 out.valid = true;
                 return out;
             }
+        }
+    }
+
+    if ((cmd == CmdBattery || cmd == 0x04) && !payload.isEmpty()) {
+        const int batt = static_cast<uint8_t>(payload.at(0));
+        if (batt >= 0 && batt <= 100) {
+            out.hasBattery = true;
+            out.batteryPercent = batt;
+            out.valid = true;
+            return out;
         }
     }
 
@@ -259,7 +414,11 @@ int FeeaCodec::parseStandardSpo2(const QByteArray &value) {
         for (int i = 0; i < -exponent; ++i) val /= 10.0;
     }
     const int spo2 = static_cast<int>(val + 0.5);
-    return (spo2 >= 70 && spo2 <= 100) ? spo2 : -1;
+    if (spo2 >= 70 && spo2 <= 100) {
+        return spo2;
+    }
+    const int plain = static_cast<uint8_t>(value.at(1));
+    return (plain >= 70 && plain <= 100) ? plain : -1;
 }
 
 QList<QByteArray> FeeaCodec::chunkPacket(const QByteArray &packet, int mtuSize) {

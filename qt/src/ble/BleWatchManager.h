@@ -5,20 +5,33 @@
 #include <QBluetoothDeviceDiscoveryAgent>
 #include <QBluetoothDeviceInfo>
 #include <QLowEnergyController>
+#include <QLowEnergyDescriptor>
 #include <QLowEnergyService>
 #include <QObject>
+#include <QPointer>
 #include <QQueue>
+#include <QStringList>
 #include <QTimer>
 #include <QVariantList>
 #include <QVariantMap>
 
 namespace fitlink {
 
-struct QueuedWrite {
-    QByteArray chunk;
-    QString actionLabel;
-    int chunkIndex = 0;
-    int totalChunks = 1;
+struct GattOp {
+    enum class Type {
+        ReadChar,
+        WriteDescriptor,
+        WriteChar
+    };
+
+    Type type = Type::WriteChar;
+    QPointer<QLowEnergyService> service;
+    QLowEnergyCharacteristic characteristic;
+    QLowEnergyDescriptor descriptor;
+    QByteArray value;
+    QLowEnergyService::WriteMode writeMode = QLowEnergyService::WriteWithoutResponse;
+    QString label;
+    int postDelayMs = 40;
 };
 
 class BleWatchManager : public QObject {
@@ -111,8 +124,14 @@ private slots:
 
     void onCharacteristicChanged(const QLowEnergyCharacteristic &characteristic, const QByteArray &value);
     void onCharacteristicRead(const QLowEnergyCharacteristic &characteristic, const QByteArray &value);
+    void onCharacteristicWritten(const QLowEnergyCharacteristic &characteristic, const QByteArray &value);
+    void onDescriptorWritten(const QLowEnergyDescriptor &descriptor, const QByteArray &value);
+    void onServiceError(QLowEnergyService::ServiceError error);
 
-    void processWriteQueue();
+    void discoverNextService();
+    void onServiceDiscoveryTimeout();
+    void processGattOpQueue();
+    void onGattOpTimeout();
 
 private:
     void setState(ConnectionState newState);
@@ -120,8 +139,14 @@ private:
     void ensureBluetoothPermissionsAndScan();
     void beginScanInternal();
     void cleanupConnection();
+    void attachServiceSignals(QLowEnergyService *service);
+    void advanceServiceDiscovery(QLowEnergyService *completedService);
+
+    void enqueueReadChar(QLowEnergyService *service, const QLowEnergyCharacteristic &characteristic, const QString &label);
+    void enqueueSubscribeToNotify(QLowEnergyService *service, const QLowEnergyCharacteristic &characteristic, const QString &label);
     bool enqueuePacket(const QByteArray &packet, const QString &actionLabel);
-    void subscribeToNotify(QLowEnergyService *service, const QLowEnergyCharacteristic &characteristic);
+    void finishActiveGattOp(int delayMs);
+    void handleParsedHealth(const ParsedHealthPacket &parsed);
     static QString deviceIdentifier(const QBluetoothDeviceInfo &info);
 
     ConnectionState m_state = ConnectionState::Disconnected;
@@ -146,6 +171,7 @@ private:
     QLowEnergyService *m_heartRateService = nullptr;
     QLowEnergyService *m_pulseOximeterService = nullptr;
 
+    QLowEnergyCharacteristic m_activityChar;
     QLowEnergyCharacteristic m_dataOutChar;
     QLowEnergyCharacteristic m_dataInChar;
     QLowEnergyCharacteristic m_batteryChar;
@@ -157,9 +183,24 @@ private:
     QString m_deviceAddress;
     int m_batteryLevel = -1;
     QVariantMap m_deviceInfo;
+    QStringList m_discoveredServiceUuids;
 
-    QQueue<QueuedWrite> m_writeQueue;
-    QTimer m_writeTimer;
+    // Serialized service detail discovery (Android GATT allows only one in-flight op at a time)
+    QQueue<QPointer<QLowEnergyService>> m_pendingServiceDiscoveries;
+    QPointer<QLowEnergyService> m_discoveringService;
+    QTimer m_serviceDiscoveryTimer;
+    bool m_initializingGatt = false;
+
+    // Unified serialized GATT operation queue (reads, CCCD writes, and command writes)
+    QQueue<GattOp> m_gattOpQueue;
+    GattOp m_activeGattOp;
+    bool m_gattOpInFlight = false;
+    QTimer m_gattOpTimer;
+    QTimer m_gattOpTimeoutTimer;
+
+    // Multi-chunk 0xFEE3 notification frame reassembly buffer
+    QByteArray m_rxAssemblyBuffer;
+    int m_rxExpectedLength = 0;
 };
 
 } // namespace fitlink

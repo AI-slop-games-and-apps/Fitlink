@@ -21,6 +21,7 @@ export const WATCH_APP_PRESETS: WatchAppPreset[] = [
 
 export const GATT_UUIDS = {
   SERVICE_FEEA: '0000feea-0000-1000-8000-00805f9b34fb',
+  CHAR_ACTIVITY: '0000fee1-0000-1000-8000-00805f9b34fb',
   CHAR_DATA_OUT: '0000fee2-0000-1000-8000-00805f9b34fb',
   CHAR_DATA_IN: '0000fee3-0000-1000-8000-00805f9b34fb',
   CHAR_DATA_OUT_ALT: '0000fee5-0000-1000-8000-00805f9b34fb',
@@ -43,7 +44,9 @@ export const GATT_UUIDS = {
 export const FEEA_CMD = {
   SET_TIME_FORMAT: 0x27,
   SET_TIME: 0x31,
+  BATTERY: 0x41,
   SYNC_ACTIVITY: 0x51,
+  SYNC_ACTIVITY_HIST: 0x52,
   FIND_WATCH: 0x61,
   PUSH_NOTIFICATION: 0x64,
   SYNC_HEART_RATE: 0x6b,
@@ -51,12 +54,13 @@ export const FEEA_CMD = {
 } as const;
 
 export interface ParsedHealthPacket {
-  type: 'none' | 'activity' | 'heartRate' | 'spo2';
+  type: 'none' | 'activity' | 'heartRate' | 'spo2' | 'battery';
   dayOffset: number;
   steps: number;
   distanceMeters: number;
   heartRateBpm: number;
   spo2Percent: number;
+  batteryPercent: number;
 }
 
 export function detectProtocolFromManufacturer(manufacturer: string): ProtocolVersion {
@@ -64,6 +68,24 @@ export function detectProtocolFromManufacturer(manufacturer: string): ProtocolVe
   if (!upper || upper === '-') return 'unknown';
   if (upper.endsWith('-V2') || upper.includes('V2')) return 'v2';
   return 'v1';
+}
+
+export function detectProtocolFromIncomingFrame(frame: Uint8Array): ProtocolVersion {
+  if (frame.length < 4 || frame[0] !== 0xfe || frame[1] !== 0xea) return 'unknown';
+  const prefix = frame[2] & 0xf0;
+  if (prefix === 0x10) return 'v1';
+  if (prefix === 0x20) return 'v2';
+  return 'unknown';
+}
+
+export function expectedFrameLength(chunk: Uint8Array): number {
+  if (chunk.length < 4 || chunk[0] !== 0xfe || chunk[1] !== 0xea) return -1;
+  const prefix = chunk[2] & 0xf0;
+  if (prefix === 0x10 || prefix === 0x20) {
+    const len = ((chunk[2] & 0x0f) << 8) | chunk[3];
+    return len >= 5 && len <= 2048 ? len : -1;
+  }
+  return -1;
 }
 
 export function resolveProtocolVersion(
@@ -86,17 +108,16 @@ export function framePacket(
   command: number,
   payload: Uint8Array
 ): Uint8Array {
-  const totalLen = 5 + payload.length;
+  // Verified 0xFEEA wire format:
+  //   V1: [0xFE] [0xEA] [0x10 + size_hi] [size_lo] [cmd] [payload...]
+  //   V2: [0xFE] [0xEA] [0x20 + size_hi] [size_lo] [cmd] [payload...]
+  const totalLen = Math.min(4095, 5 + payload.length);
+  const prefix = version === 'v1' ? 0x10 : 0x20;
   const out = new Uint8Array(totalLen);
   out[0] = 0xfe;
   out[1] = 0xea;
-  if (version === 'v1') {
-    out[2] = 0x10;
-    out[3] = Math.min(255, totalLen) & 0xff;
-  } else {
-    out[2] = totalLen & 0xff;
-    out[3] = (totalLen >> 8) & 0xff;
-  }
+  out[2] = (prefix + ((totalLen >> 8) & 0x0f)) & 0xff;
+  out[3] = totalLen & 0xff;
   out[4] = command & 0xff;
   out.set(payload, 5);
   return out;
@@ -107,17 +128,17 @@ export function encodeSyncTime(
   date: Date,
   utcOffsetMinutes: number
 ): Uint8Array {
-  const epochSec = Math.floor(date.getTime() / 1000) >>> 0;
+  // Verified 0x31 payload (5 bytes, totalLen = 10): [epochSec BE (4B)] [tzHours int8 (1B)]
   const tzHours = Math.max(-12, Math.min(14, Math.trunc(utcOffsetMinutes / 60)));
-  const tzQuarters = Math.trunc((Math.abs(utcOffsetMinutes) % 60) / 15);
+  const remainderMinutes = utcOffsetMinutes - tzHours * 60;
+  const adjustedEpoch = Math.max(0, Math.floor(date.getTime() / 1000) + remainderMinutes * 60) >>> 0;
 
-  const payload = new Uint8Array(6);
-  payload[0] = (epochSec >>> 24) & 0xff;
-  payload[1] = (epochSec >>> 16) & 0xff;
-  payload[2] = (epochSec >>> 8) & 0xff;
-  payload[3] = epochSec & 0xff;
+  const payload = new Uint8Array(5);
+  payload[0] = (adjustedEpoch >>> 24) & 0xff;
+  payload[1] = (adjustedEpoch >>> 16) & 0xff;
+  payload[2] = (adjustedEpoch >>> 8) & 0xff;
+  payload[3] = adjustedEpoch & 0xff;
   payload[4] = tzHours & 0xff;
-  payload[5] = tzQuarters & 0xff;
 
   return framePacket(version, FEEA_CMD.SET_TIME, payload);
 }
@@ -178,7 +199,8 @@ export function encodeNotification(
 }
 
 export function encodeFindWatch(version: 'v1' | 'v2'): Uint8Array {
-  return framePacket(version, FEEA_CMD.FIND_WATCH, new Uint8Array([0x01]));
+  // Verified 0x61 Find Watch frame uses an empty payload (totalLen = 5)
+  return framePacket(version, FEEA_CMD.FIND_WATCH, new Uint8Array(0));
 }
 
 export function encodeSyncActivity(version: 'v1' | 'v2', dayOffset = 0): Uint8Array {
@@ -194,6 +216,83 @@ export function encodeSyncSpo2(version: 'v1' | 'v2'): Uint8Array {
   return framePacket(version, FEEA_CMD.SYNC_SPO2, new Uint8Array([0x01]));
 }
 
+function readUint24BE(buf: Uint8Array, offset: number): number {
+  return (buf[offset] << 16) | (buf[offset + 1] << 8) | buf[offset + 2];
+}
+
+function readUint24LE(buf: Uint8Array, offset: number): number {
+  return buf[offset] | (buf[offset + 1] << 8) | (buf[offset + 2] << 16);
+}
+
+function decodeStepsAndDistance(
+  buf: Uint8Array,
+  offset: number
+): { steps: number; distanceMeters: number } | null {
+  if (buf.length < offset + 3) return null;
+  const stepsBE = readUint24BE(buf, offset);
+  const stepsLE = readUint24LE(buf, offset);
+  const beOk = stepsBE >= 0 && stepsBE <= 200_000;
+  const leOk = stepsLE >= 0 && stepsLE <= 200_000;
+
+  let useBE = true;
+  if (beOk && !leOk) {
+    useBE = true;
+  } else if (leOk && !beOk) {
+    useBE = false;
+  } else if (!beOk && !leOk) {
+    return null;
+  } else if (buf.length >= offset + 6) {
+    const distBE = readUint24BE(buf, offset + 3);
+    const distLE = readUint24LE(buf, offset + 3);
+    if (distLE <= 250_000 && distBE > 250_000) {
+      useBE = false;
+    }
+  }
+
+  const steps = useBE ? stepsBE : stepsLE;
+  let distanceMeters = Math.round(steps * 0.75);
+  if (buf.length >= offset + 6) {
+    const dist = useBE ? readUint24BE(buf, offset + 3) : readUint24LE(buf, offset + 3);
+    if (dist >= 0 && dist <= 250_000) {
+      distanceMeters = dist === 0 && steps > 0 ? Math.round(steps * 0.75) : dist;
+    }
+  } else if (buf.length >= offset + 5) {
+    const dist16 = useBE
+      ? (buf[offset + 3] << 8) | buf[offset + 4]
+      : buf[offset + 3] | (buf[offset + 4] << 8);
+    distanceMeters = dist16 === 0 && steps > 0 ? Math.round(steps * 0.75) : dist16;
+  }
+
+  return { steps, distanceMeters };
+}
+
+export function parseFee1Activity(value: Uint8Array): ParsedHealthPacket {
+  const empty: ParsedHealthPacket = {
+    type: 'none',
+    dayOffset: 0,
+    steps: 0,
+    distanceMeters: 0,
+    heartRateBpm: 0,
+    spo2Percent: 0,
+    batteryPercent: -1,
+  };
+  if (value.length === 0) return empty;
+  if (value.length >= 6 && value[0] === 0xfe && value[1] === 0xea) {
+    return parseFeeaHealthResponse(value);
+  }
+  const decoded = decodeStepsAndDistance(value, 0);
+  if (decoded) {
+    return {
+      ...empty,
+      type: 'activity',
+      dayOffset: 0,
+      steps: decoded.steps,
+      distanceMeters: decoded.distanceMeters,
+    };
+  }
+  return empty;
+}
+
 export function parseFeeaHealthResponse(frame: Uint8Array): ParsedHealthPacket {
   const empty: ParsedHealthPacket = {
     type: 'none',
@@ -202,6 +301,7 @@ export function parseFeeaHealthResponse(frame: Uint8Array): ParsedHealthPacket {
     distanceMeters: 0,
     heartRateBpm: 0,
     spo2Percent: 0,
+    batteryPercent: -1,
   };
   if (frame.length < 6 || frame[0] !== 0xfe || frame[1] !== 0xea) {
     return empty;
@@ -210,49 +310,58 @@ export function parseFeeaHealthResponse(frame: Uint8Array): ParsedHealthPacket {
   const cmd = frame[4];
   const payload = frame.subarray(5);
 
-  if (cmd === FEEA_CMD.SYNC_ACTIVITY && payload.length >= 6) {
+  if ((cmd === FEEA_CMD.SYNC_ACTIVITY || cmd === FEEA_CMD.SYNC_ACTIVITY_HIST || cmd === 0x09) && payload.length >= 3) {
     let offset = 0;
     let dayOffset = 0;
     if (payload.length >= 7 && payload[0] <= 6) {
       dayOffset = payload[0];
       offset = 1;
     }
-    const steps =
-      (payload[offset] << 16) | (payload[offset + 1] << 8) | payload[offset + 2];
-    let distanceMeters =
-      (payload[offset + 3] << 16) | (payload[offset + 4] << 8) | payload[offset + 5];
-    if (distanceMeters === 0 && steps > 0) {
-      distanceMeters = Math.round(steps * 0.74);
-    }
-    if (steps >= 0 && steps <= 200_000 && distanceMeters >= 0 && distanceMeters <= 200_000) {
+    const decoded = decodeStepsAndDistance(payload, offset);
+    if (decoded) {
       return {
         ...empty,
         type: 'activity',
         dayOffset,
-        steps,
-        distanceMeters,
+        steps: decoded.steps,
+        distanceMeters: decoded.distanceMeters,
       };
     }
   }
 
-  if (cmd === FEEA_CMD.SYNC_HEART_RATE && payload.length >= 1) {
-    const bpm = payload[payload.length - 1];
-    if (bpm >= 30 && bpm <= 240) {
-      return {
-        ...empty,
-        type: 'heartRate',
-        heartRateBpm: bpm,
-      };
+  if ((cmd === FEEA_CMD.SYNC_HEART_RATE || cmd === 0x6a || cmd === 0x69 || cmd === 0x6d || cmd === 0x0a) && payload.length >= 1) {
+    for (let i = payload.length - 1; i >= 0; i -= 1) {
+      const bpm = payload[i];
+      if (bpm >= 30 && bpm <= 220) {
+        return {
+          ...empty,
+          type: 'heartRate',
+          heartRateBpm: bpm,
+        };
+      }
     }
   }
 
-  if (cmd === FEEA_CMD.SYNC_SPO2 && payload.length >= 1) {
-    const spo2 = payload[payload.length - 1];
-    if (spo2 >= 70 && spo2 <= 100) {
+  if ((cmd === FEEA_CMD.SYNC_SPO2 || cmd === 0x72 || cmd === 0x73 || cmd === 0x80 || cmd === 0x82 || cmd === 0x0b) && payload.length >= 1) {
+    for (let i = payload.length - 1; i >= 0; i -= 1) {
+      const spo2 = payload[i];
+      if (spo2 >= 70 && spo2 <= 100) {
+        return {
+          ...empty,
+          type: 'spo2',
+          spo2Percent: spo2,
+        };
+      }
+    }
+  }
+
+  if ((cmd === FEEA_CMD.BATTERY || cmd === 0x04) && payload.length >= 1) {
+    const batt = payload[0];
+    if (batt >= 0 && batt <= 100) {
       return {
         ...empty,
-        type: 'spo2',
-        spo2Percent: spo2,
+        type: 'battery',
+        batteryPercent: batt,
       };
     }
   }
@@ -270,12 +379,11 @@ export function parseStandardHeartRate(data: Uint8Array): number | null {
   } else {
     bpm = data[1];
   }
-  return bpm >= 30 && bpm <= 240 ? bpm : null;
+  return bpm >= 30 && bpm <= 220 ? bpm : null;
 }
 
 export function parseStandardSpo2(data: Uint8Array): number | null {
   if (data.length < 3) return null;
-  // Standard IEEE-11073 16-bit SFLOAT at bytes 1..2 (mantissa low 12 bits, signed 4-bit exponent)
   const raw = data[1] | (data[2] << 8);
   let mantissa = raw & 0x0fff;
   if (mantissa >= 0x0800) mantissa -= 0x1000;
@@ -285,7 +393,6 @@ export function parseStandardSpo2(data: Uint8Array): number | null {
   if (value >= 70 && value <= 100) {
     return value;
   }
-  // Fallback for vendor payloads placing plain integer % at byte 1
   const plain = data[1];
   return plain >= 70 && plain <= 100 ? plain : null;
 }

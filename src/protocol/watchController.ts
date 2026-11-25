@@ -4,7 +4,9 @@ import {
   bytesToHex,
   chunkPacket,
   detectProtocolFromManufacturer,
+  expectedFrameLength,
   framePacket,
+  parseFee1Activity,
   parseFeeaHealthResponse,
   parseStandardHeartRate,
   parseStandardSpo2,
@@ -75,9 +77,12 @@ const textDecoder = new TextDecoder('utf-8');
 export class WebBleWatchSession {
   private device: WebBleDevice | null = null;
   private gatt: WebBleGattServer | null = null;
+  private activityChar: WebBleCharacteristic | null = null;
   private dataOutChar: WebBleCharacteristic | null = null;
   private batteryChar: WebBleCharacteristic | null = null;
   private alertLevelChar: WebBleCharacteristic | null = null;
+  private rxBuffer: Uint8Array = new Uint8Array(0);
+  private rxExpectedLen = 0;
   private virtual = false;
   private virtualSyncCount = 0;
 
@@ -165,67 +170,7 @@ export class WebBleWatchSession {
     const gatt = await device.gatt.connect();
     this.gatt = gatt;
 
-    // 1. Discover 0xFEEA BLE service
-    try {
-      const feeaSvc = await gatt.getPrimaryService(GATT_UUIDS.SERVICE_FEEA);
-      const chars = await feeaSvc.getCharacteristics();
-
-      this.dataOutChar =
-        chars.find((c) => c.uuid === GATT_UUIDS.CHAR_DATA_OUT) ??
-        chars.find((c) => c.uuid === GATT_UUIDS.CHAR_DATA_OUT_ALT) ??
-        chars.find((c) => c.properties.write || c.properties.writeWithoutResponse) ??
-        null;
-
-      const dataInChar =
-        chars.find((c) => c.uuid === GATT_UUIDS.CHAR_DATA_IN) ??
-        chars.find((c) => c.properties.notify) ??
-        null;
-
-      if (dataInChar) {
-        try {
-          await dataInChar.startNotifications();
-          dataInChar.addEventListener('characteristicvaluechanged', (ev: Event) => {
-            const target = ev.target as unknown as { value?: DataView };
-            if (target?.value) {
-              const bytes = new Uint8Array(target.value.buffer, target.value.byteOffset, target.value.byteLength);
-              this.onDataReceived?.(bytesToHex(bytes));
-              this.dispatchFeeaHealthFrame(bytes);
-            }
-          });
-        } catch {
-          // Non-fatal: watch may still accept outbound commands
-        }
-      }
-    } catch {
-      // Allow inspection even if device only exposes standard services
-    }
-
-    // 2. Battery service (0x180F)
-    let batteryLevel: number | null = null;
-    try {
-      const battSvc = await gatt.getPrimaryService(GATT_UUIDS.SERVICE_BATTERY);
-      const battChar = await battSvc.getCharacteristic(GATT_UUIDS.CHAR_BATTERY_LEVEL);
-      this.batteryChar = battChar;
-      const val = await battChar.readValue();
-      batteryLevel = val.getUint8(0);
-      if (battChar.properties.notify) {
-        try {
-          await battChar.startNotifications();
-          battChar.addEventListener('characteristicvaluechanged', (ev: Event) => {
-            const target = ev.target as unknown as { value?: DataView };
-            if (target?.value) {
-              this.onBatteryChanged?.(target.value.getUint8(0));
-            }
-          });
-        } catch {
-          // Non-fatal
-        }
-      }
-    } catch {
-      // Optional on some OEM watches
-    }
-
-    // 3. Device Information service (0x180A)
+    // 1. Device Information service (0x180A) first so V1/V2 protocol version is known immediately
     const deviceInfo: WatchDeviceInfo = {
       manufacturer: '-',
       model: '-',
@@ -248,7 +193,95 @@ export class WebBleWatchSession {
       deviceInfo.firmware = await readText(GATT_UUIDS.CHAR_FIRMWARE_REV);
       deviceInfo.hardware = await readText(GATT_UUIDS.CHAR_HARDWARE_REV);
     } catch {
-      // Optional on some OEM watches
+      // Optional on some watches
+    }
+
+    // 2. Discover 0xFEEA BLE service (0xFEE1 activity, 0xFEE2 write, 0xFEE3 notify)
+    try {
+      const feeaSvc = await gatt.getPrimaryService(GATT_UUIDS.SERVICE_FEEA);
+      const chars = await feeaSvc.getCharacteristics();
+
+      this.activityChar = chars.find((c) => c.uuid === GATT_UUIDS.CHAR_ACTIVITY) ?? null;
+      this.dataOutChar =
+        chars.find((c) => c.uuid === GATT_UUIDS.CHAR_DATA_OUT) ??
+        chars.find((c) => c.uuid === GATT_UUIDS.CHAR_DATA_OUT_ALT) ??
+        chars.find((c) => c.properties.write || c.properties.writeWithoutResponse) ??
+        null;
+
+      const dataInChar =
+        chars.find((c) => c.uuid === GATT_UUIDS.CHAR_DATA_IN) ??
+        chars.find((c) => c.uuid !== GATT_UUIDS.CHAR_ACTIVITY && c.properties.notify) ??
+        null;
+
+      if (dataInChar) {
+        try {
+          await dataInChar.startNotifications();
+          dataInChar.addEventListener('characteristicvaluechanged', (ev: Event) => {
+            const target = ev.target as unknown as { value?: DataView };
+            if (target?.value) {
+              const bytes = new Uint8Array(target.value.buffer, target.value.byteOffset, target.value.byteLength);
+              this.onDataReceived?.(bytesToHex(bytes));
+              this.handleIncomingFeeaChunk(bytes);
+            }
+          });
+        } catch {
+          // Non-fatal: watch may still accept outbound commands
+        }
+      }
+
+      if (this.activityChar) {
+        if (this.activityChar.properties.notify) {
+          try {
+            await this.activityChar.startNotifications();
+            this.activityChar.addEventListener('characteristicvaluechanged', (ev: Event) => {
+              const target = ev.target as unknown as { value?: DataView };
+              if (target?.value) {
+                const bytes = new Uint8Array(target.value.buffer, target.value.byteOffset, target.value.byteLength);
+                this.onDataReceived?.(bytesToHex(bytes));
+                this.dispatchParsedHealth(parseFee1Activity(bytes));
+              }
+            });
+          } catch {
+            // Non-fatal
+          }
+        }
+        if (this.activityChar.properties.read) {
+          try {
+            const dv = await this.activityChar.readValue();
+            const bytes = new Uint8Array(dv.buffer, dv.byteOffset, dv.byteLength);
+            this.dispatchParsedHealth(parseFee1Activity(bytes));
+          } catch {
+            // Non-fatal
+          }
+        }
+      }
+    } catch {
+      // Allow inspection even if device only exposes standard services
+    }
+
+    // 3. Battery service (0x180F)
+    let batteryLevel: number | null = null;
+    try {
+      const battSvc = await gatt.getPrimaryService(GATT_UUIDS.SERVICE_BATTERY);
+      const battChar = await battSvc.getCharacteristic(GATT_UUIDS.CHAR_BATTERY_LEVEL);
+      this.batteryChar = battChar;
+      const val = await battChar.readValue();
+      batteryLevel = val.getUint8(0);
+      if (battChar.properties.notify) {
+        try {
+          await battChar.startNotifications();
+          battChar.addEventListener('characteristicvaluechanged', (ev: Event) => {
+            const target = ev.target as unknown as { value?: DataView };
+            if (target?.value) {
+              this.onBatteryChanged?.(target.value.getUint8(0));
+            }
+          });
+        } catch {
+          // Non-fatal
+        }
+      }
+    } catch {
+      // Optional on some watches
     }
 
     // 4. Optional Immediate Alert (0x1802)
@@ -328,12 +361,12 @@ export class WebBleWatchSession {
     if (this.virtual) {
       await new Promise((resolve) => setTimeout(resolve, Math.min(140, writeDelayMs)));
       const cmd = packet[4] ?? 0x00;
-      const version: 'v1' | 'v2' = packet[2] === 0x10 ? 'v1' : 'v2';
+      const version: 'v1' | 'v2' = (packet[2] & 0xf0) === 0x10 ? 'v1' : 'v2';
 
       if (cmd === FEEA_CMD.SYNC_ACTIVITY) {
         const dayOffset = packet[5] ?? 0;
         const responseFrame = this.buildVirtualActivityFrame(version, dayOffset);
-        this.dispatchFeeaHealthFrame(responseFrame);
+        this.dispatchParsedHealth(parseFeeaHealthResponse(responseFrame));
         return { chunks: chunks.length, ackHex: bytesToHex(responseFrame) };
       }
 
@@ -342,7 +375,7 @@ export class WebBleWatchSession {
         const hrSeries = [72, 74, 69, 76, 71, 68, 75, 73];
         const bpm = hrSeries[this.virtualSyncCount % hrSeries.length];
         const responseFrame = framePacket(version, FEEA_CMD.SYNC_HEART_RATE, new Uint8Array([bpm]));
-        this.dispatchFeeaHealthFrame(responseFrame);
+        this.dispatchParsedHealth(parseFeeaHealthResponse(responseFrame));
         return { chunks: chunks.length, ackHex: bytesToHex(responseFrame) };
       }
 
@@ -350,11 +383,11 @@ export class WebBleWatchSession {
         const spo2Series = [98, 99, 97, 98, 99, 98, 97, 98];
         const spo2 = spo2Series[this.virtualSyncCount % spo2Series.length];
         const responseFrame = framePacket(version, FEEA_CMD.SYNC_SPO2, new Uint8Array([spo2]));
-        this.dispatchFeeaHealthFrame(responseFrame);
+        this.dispatchParsedHealth(parseFeeaHealthResponse(responseFrame));
         return { chunks: chunks.length, ackHex: bytesToHex(responseFrame) };
       }
 
-      const ack = new Uint8Array([0xfe, 0xea, 0x06, 0x00, cmd, 0x01]);
+      const ack = framePacket(version, cmd, new Uint8Array([0x01]));
       return { chunks: chunks.length, ackHex: bytesToHex(ack) };
     }
 
@@ -404,14 +437,38 @@ export class WebBleWatchSession {
     this.cleanupHandles();
   }
 
-  private dispatchFeeaHealthFrame(bytes: Uint8Array): void {
-    const parsed = parseFeeaHealthResponse(bytes);
+  private handleIncomingFeeaChunk(chunk: Uint8Array): void {
+    const expLen = expectedFrameLength(chunk);
+    if (expLen > 0) {
+      this.rxBuffer = chunk;
+      this.rxExpectedLen = expLen;
+    } else if (this.rxBuffer.length > 0 && this.rxExpectedLen > 0) {
+      const merged = new Uint8Array(this.rxBuffer.length + chunk.length);
+      merged.set(this.rxBuffer, 0);
+      merged.set(chunk, this.rxBuffer.length);
+      this.rxBuffer = merged;
+    } else {
+      this.dispatchParsedHealth(parseFeeaHealthResponse(chunk));
+      return;
+    }
+
+    if (this.rxExpectedLen > 0 && this.rxBuffer.length >= this.rxExpectedLen) {
+      const complete = this.rxBuffer.slice(0, this.rxExpectedLen);
+      this.rxBuffer = new Uint8Array(0);
+      this.rxExpectedLen = 0;
+      this.dispatchParsedHealth(parseFeeaHealthResponse(complete));
+    }
+  }
+
+  private dispatchParsedHealth(parsed: ReturnType<typeof parseFeeaHealthResponse>): void {
     if (parsed.type === 'activity') {
       this.onActivityDataReceived?.(parsed.dayOffset, parsed.steps, parsed.distanceMeters);
     } else if (parsed.type === 'heartRate') {
       this.onHeartRateReceived?.(parsed.heartRateBpm);
     } else if (parsed.type === 'spo2') {
       this.onSpo2Received?.(parsed.spo2Percent);
+    } else if (parsed.type === 'battery' && parsed.batteryPercent >= 0) {
+      this.onBatteryChanged?.(parsed.batteryPercent);
     }
   }
 
@@ -439,8 +496,11 @@ export class WebBleWatchSession {
   private cleanupHandles(): void {
     this.device = null;
     this.gatt = null;
+    this.activityChar = null;
     this.dataOutChar = null;
     this.batteryChar = null;
     this.alertLevelChar = null;
+    this.rxBuffer = new Uint8Array(0);
+    this.rxExpectedLen = 0;
   }
 }
