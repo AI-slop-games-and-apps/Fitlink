@@ -267,7 +267,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<NavTab>('overview');
   const [connectDialogOpen, setConnectDialogOpen] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
-  const [showAllBleDevices, setShowAllBleDevices] = useState(false);
+  const [showAllBleDevices, setShowAllBleDevices] = useState(true);
 
   const [watch, setWatch] = useState<WatchRuntimeState>({
     isConnected: false,

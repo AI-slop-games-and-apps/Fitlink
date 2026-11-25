@@ -247,15 +247,6 @@ export class WebBleWatchSession {
             // Non-fatal
           }
         }
-        if (this.activityChar.properties.read) {
-          try {
-            const dv = await this.activityChar.readValue();
-            const bytes = new Uint8Array(dv.buffer, dv.byteOffset, dv.byteLength);
-            this.dispatchParsedHealth(parseFee1Activity(bytes));
-          } catch {
-            // Non-fatal
-          }
-        }
       }
     } catch {
       // Allow inspection even if device only exposes standard services

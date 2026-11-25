@@ -82,3 +82,16 @@ The included GitHub Actions workflow builds all four targets in parallel on ever
 
 Whenever all builds succeed on `main` / `master` (or via **Run workflow**), the workflow automatically publishes/updates the **`latest`** GitHub Release with all four packages attached. Pushing a version tag (e.g. `git tag v1.0.0 && git push origin v1.0.0`) publishes a versioned GitHub Release with auto-generated release notes.
 
+---
+
+## Browser App (GitHub Pages)
+
+FitLink also includes a Web Bluetooth companion web app that builds and deploys to GitHub Pages first inside `.github/workflows/build.yml` before the `.deb` and `.apk` builds start.
+
+1. In your GitHub repository, open **Settings → Pages**.
+2. Under **Build and deployment → Source**, select **GitHub Actions**.
+3. Push to `main` / `master` (or manually run **Build & Deploy FitLink (Pages, Debian & Android)** in the **Actions** tab).
+
+Once published, open the GitHub Pages HTTPS URL in **Chrome, Edge, or Brave** (desktop or Android) to pair and control your watch directly in the browser via Web Bluetooth.
+
+
