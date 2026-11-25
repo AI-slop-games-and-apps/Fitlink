@@ -42,6 +42,7 @@ AppController::AppController(QObject *parent)
     connect(m_ble, &BleWatchManager::activityDataReceived, this, &AppController::onActivityDataReceived);
     connect(m_ble, &BleWatchManager::heartRateReceived, this, &AppController::onHeartRateReceived);
     connect(m_ble, &BleWatchManager::spo2Received, this, &AppController::onSpo2Received);
+    connect(m_ble, &BleWatchManager::bloodPressureReceived, this, &AppController::onBloodPressureReceived);
     connect(m_ble, &BleWatchManager::packetLogged, this, &AppController::onPacketLogged);
     connect(m_ble, &BleWatchManager::errorOccurred, this, [this](const QString &msg) {
         emit toastMessage(msg, true);
@@ -73,6 +74,15 @@ AppController::AppController(QObject *parent)
     connect(&m_spo2MeasureTimer, &QTimer::timeout, this, [this]() {
         if (m_isMeasuringSpo2) {
             m_isMeasuringSpo2 = false;
+            emit activityChanged();
+        }
+    });
+
+    m_bpMeasureTimer.setSingleShot(true);
+    m_bpMeasureTimer.setInterval(35000);
+    connect(&m_bpMeasureTimer, &QTimer::timeout, this, [this]() {
+        if (m_isMeasuringBloodPressure) {
+            m_isMeasuringBloodPressure = false;
             emit activityChanged();
         }
     });
@@ -466,6 +476,12 @@ QString AppController::spo2UpdatedAt() const {
         : tr("No reading");
 }
 
+QString AppController::bloodPressureUpdatedAt() const {
+    return m_bloodPressureUpdatedAt.isValid()
+        ? m_bloodPressureUpdatedAt.toString(m_use24Hour ? QStringLiteral("HH:mm") : QStringLiteral("hh:mm AP"))
+        : tr("No reading");
+}
+
 QString AppController::lastActivitySyncText() const {
     return m_lastActivitySyncedAt.isValid()
         ? tr("Synced %1").arg(m_lastActivitySyncedAt.toString(m_use24Hour ? QStringLiteral("HH:mm:ss") : QStringLiteral("hh:mm:ss AP")))
@@ -525,6 +541,19 @@ void AppController::measureSpo2() {
     }
 }
 
+void AppController::measureBloodPressure() {
+    if (!isConnected()) {
+        emit toastMessage(tr("Connect a watch before measuring blood pressure"), true);
+        return;
+    }
+    if (m_ble->requestBloodPressureReading()) {
+        m_isMeasuringBloodPressure = true;
+        m_bpMeasureTimer.start();
+        emit activityChanged();
+        emit toastMessage(tr("Blood pressure reading started on watch"), false);
+    }
+}
+
 void AppController::onBleStateChanged(BleWatchManager::ConnectionState state) {
     emit connectionStateChanged();
     if (state != BleWatchManager::ConnectionState::Connected) {
@@ -537,6 +566,11 @@ void AppController::onBleStateChanged(BleWatchManager::ConnectionState state) {
         if (m_isMeasuringSpo2) {
             m_spo2MeasureTimer.stop();
             m_isMeasuringSpo2 = false;
+            changed = true;
+        }
+        if (m_isMeasuringBloodPressure) {
+            m_bpMeasureTimer.stop();
+            m_isMeasuringBloodPressure = false;
             changed = true;
         }
         if (m_isSyncingActivity) {
@@ -591,6 +625,28 @@ void AppController::onSpo2Received(int percent) {
         m_spo2Samples.removeFirst();
     }
     m_lastActivitySyncedAt = m_spo2UpdatedAt;
+    emit activityChanged();
+    savePersistedState();
+}
+
+void AppController::onBloodPressureReceived(int systolic, int diastolic) {
+    if (systolic < 70 || systolic > 240 || diastolic < 40 || diastolic > 150 || systolic <= diastolic) {
+        return;
+    }
+    m_bpMeasureTimer.stop();
+    m_isMeasuringBloodPressure = false;
+    m_latestSystolic = systolic;
+    m_latestDiastolic = diastolic;
+    m_bloodPressureUpdatedAt = QDateTime::currentDateTime();
+
+    QVariantMap sample;
+    sample[QStringLiteral("systolic")] = systolic;
+    sample[QStringLiteral("diastolic")] = diastolic;
+    m_bloodPressureSamples.append(sample);
+    while (m_bloodPressureSamples.size() > 12) {
+        m_bloodPressureSamples.removeFirst();
+    }
+    m_lastActivitySyncedAt = m_bloodPressureUpdatedAt;
     emit activityChanged();
     savePersistedState();
 }
@@ -764,6 +820,10 @@ void AppController::loadPersistedState() {
         m_latestSpo2 = root.value(QStringLiteral("latestSpo2")).toInt(-1);
         m_spo2UpdatedAt = QDateTime::fromString(root.value(QStringLiteral("spo2UpdatedAt")).toString(), Qt::ISODate);
         m_spo2Samples = root.value(QStringLiteral("spo2Samples")).toArray().toVariantList();
+        m_latestSystolic = root.value(QStringLiteral("latestSystolic")).toInt(-1);
+        m_latestDiastolic = root.value(QStringLiteral("latestDiastolic")).toInt(-1);
+        m_bloodPressureUpdatedAt = QDateTime::fromString(root.value(QStringLiteral("bloodPressureUpdatedAt")).toString(), Qt::ISODate);
+        m_bloodPressureSamples = root.value(QStringLiteral("bloodPressureSamples")).toArray().toVariantList();
         m_lastActivitySyncedAt = QDateTime::fromString(root.value(QStringLiteral("lastActivitySyncedAt")).toString(), Qt::ISODate);
     }
     ensureCurrentWeekBuckets();
@@ -791,6 +851,10 @@ void AppController::savePersistedState() const {
     root[QStringLiteral("latestSpo2")] = m_latestSpo2;
     root[QStringLiteral("spo2UpdatedAt")] = m_spo2UpdatedAt.isValid() ? m_spo2UpdatedAt.toString(Qt::ISODate) : QString();
     root[QStringLiteral("spo2Samples")] = QJsonArray::fromVariantList(m_spo2Samples);
+    root[QStringLiteral("latestSystolic")] = m_latestSystolic;
+    root[QStringLiteral("latestDiastolic")] = m_latestDiastolic;
+    root[QStringLiteral("bloodPressureUpdatedAt")] = m_bloodPressureUpdatedAt.isValid() ? m_bloodPressureUpdatedAt.toString(Qt::ISODate) : QString();
+    root[QStringLiteral("bloodPressureSamples")] = QJsonArray::fromVariantList(m_bloodPressureSamples);
     root[QStringLiteral("lastActivitySyncedAt")] = m_lastActivitySyncedAt.isValid() ? m_lastActivitySyncedAt.toString(Qt::ISODate) : QString();
 
     QFile file(stateFilePath());

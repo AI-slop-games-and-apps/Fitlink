@@ -9,6 +9,8 @@ import { TimeSyncView } from './components/TimeSyncView';
 import {
   bytesToHex,
   encodeFindWatch,
+  encodeGetTodayActivity,
+  encodeMeasureBloodPressure,
   encodeMeasureHeartRate,
   encodeMeasureSpo2,
   encodeNotification,
@@ -69,6 +71,10 @@ const DEFAULT_ACTIVITY_STATE: ActivityState = {
   latestSpo2: null,
   spo2UpdatedAt: null,
   spo2Samples: [],
+  latestSystolic: null,
+  latestDiastolic: null,
+  bloodPressureUpdatedAt: null,
+  bloodPressureSamples: [],
   lastActivitySyncedAt: null,
 };
 
@@ -120,6 +126,22 @@ function loadPersisted(): PersistedConfig {
               spo2UpdatedAt: rawAct.spo2UpdatedAt ?? null,
               spo2Samples: Array.isArray(rawAct.spo2Samples)
                 ? rawAct.spo2Samples.slice(-12)
+                : [],
+              latestSystolic:
+                typeof rawAct.latestSystolic === 'number' ? rawAct.latestSystolic : null,
+              latestDiastolic:
+                typeof rawAct.latestDiastolic === 'number' ? rawAct.latestDiastolic : null,
+              bloodPressureUpdatedAt: rawAct.bloodPressureUpdatedAt ?? null,
+              bloodPressureSamples: Array.isArray(rawAct.bloodPressureSamples)
+                ? rawAct.bloodPressureSamples
+                    .filter(
+                      (s): s is { systolic: number; diastolic: number } =>
+                        typeof s === 'object' &&
+                        s !== null &&
+                        typeof s.systolic === 'number' &&
+                        typeof s.diastolic === 'number'
+                    )
+                    .slice(-12)
                 : [],
               lastActivitySyncedAt: rawAct.lastActivitySyncedAt ?? null,
             }
@@ -276,8 +298,10 @@ export default function App() {
   const [isSyncingActivity, setIsSyncingActivity] = useState(false);
   const [isMeasuringHeartRate, setIsMeasuringHeartRate] = useState(false);
   const [isMeasuringSpo2, setIsMeasuringSpo2] = useState(false);
+  const [isMeasuringBloodPressure, setIsMeasuringBloodPressure] = useState(false);
   const hrTimerRef = useRef<number | null>(null);
   const spo2TimerRef = useRef<number | null>(null);
+  const bpTimerRef = useRef<number | null>(null);
 
   const [isVibrating, setIsVibrating] = useState(false);
   const [activeWatchBanner, setActiveWatchBanner] = useState<WatchAlertBanner | null>(null);
@@ -353,8 +377,13 @@ export default function App() {
         window.clearTimeout(spo2TimerRef.current);
         spo2TimerRef.current = null;
       }
+      if (bpTimerRef.current !== null) {
+        window.clearTimeout(bpTimerRef.current);
+        bpTimerRef.current = null;
+      }
       setIsMeasuringHeartRate(false);
       setIsMeasuringSpo2(false);
+      setIsMeasuringBloodPressure(false);
       setWatch((prev) => ({
         ...prev,
         isConnected: false,
@@ -421,6 +450,22 @@ export default function App() {
         latestSpo2: spo2,
         spo2UpdatedAt: stamped,
         spo2Samples: [...prev.spo2Samples, spo2].slice(-12),
+        lastActivitySyncedAt: stamped,
+      }));
+    };
+    session.onBloodPressureReceived = (systolic, diastolic) => {
+      if (bpTimerRef.current !== null) {
+        window.clearTimeout(bpTimerRef.current);
+        bpTimerRef.current = null;
+      }
+      setIsMeasuringBloodPressure(false);
+      const stamped = formatShortTime();
+      setActivityState((prev) => ({
+        ...prev,
+        latestSystolic: systolic,
+        latestDiastolic: diastolic,
+        bloodPressureUpdatedAt: stamped,
+        bloodPressureSamples: [...prev.bloodPressureSamples, { systolic, diastolic }].slice(-12),
         lastActivitySyncedAt: stamped,
       }));
     };
@@ -507,27 +552,42 @@ export default function App() {
   );
 
   const handleRefreshActivity = useCallback(
-    async (_protoOverride?: 'v1' | 'v2', silent = false) => {
+    async (protoOverride?: 'v1' | 'v2', silent = false) => {
+      if (!watch.isConnected) {
+        if (!silent) {
+          showToast('Connect a watch before syncing steps and distance', true);
+        }
+        return;
+      }
       setIsSyncingActivity(true);
       try {
-        // Safely read steps & distance directly from 0xFEE1 (no 0xFEE2 system writes)
-        const ok = await sessionRef.current!.readActivity();
-        if (ok) {
+        const resolved =
+          protoOverride ??
+          resolveProtocolVersion(watch.detectedProtocol, watch.protocolPreference);
+        // 1. Read 0xFEE1 directly if the watch exposes a readable activity characteristic
+        const readOk = await sessionRef.current!.readActivity();
+        // 2. Also send the empty-payload 0x81 get request for today's steps & distance
+        const cmdOk = await transmitPacket(
+          'Get Steps & Distance (0x81)',
+          encodeGetTodayActivity(resolved),
+          resolved
+        );
+        if (readOk || cmdOk) {
           setActivityState((prev) => ({
             ...prev,
             lastActivitySyncedAt: formatShortTime(),
           }));
           if (!silent) {
-            showToast('Steps and distance refreshed from watch');
+            showToast('Requested today steps and distance from watch');
           }
         } else if (!silent) {
-          showToast('Watch does not expose a readable 0xFEE1 steps characteristic', true);
+          showToast('Unable to request steps and distance from watch', true);
         }
       } finally {
         setIsSyncingActivity(false);
       }
     },
-    [showToast]
+    [showToast, transmitPacket, watch.detectedProtocol, watch.isConnected, watch.protocolPreference]
   );
 
   const handleMeasureHeartRate = useCallback(async () => {
@@ -544,7 +604,11 @@ export default function App() {
       setIsMeasuringHeartRate(false);
       hrTimerRef.current = null;
     }, 30_000);
-    const ok = await transmitPacket('Measure Heart Rate (0x69)', encodeMeasureHeartRate(resolved), resolved);
+    const ok = await transmitPacket(
+      'Measure Heart Rate (0x6D)',
+      encodeMeasureHeartRate(resolved),
+      resolved
+    );
     if (ok) {
       showToast('Heart rate reading started on watch');
     } else {
@@ -579,6 +643,36 @@ export default function App() {
         spo2TimerRef.current = null;
       }
       setIsMeasuringSpo2(false);
+    }
+  }, [showToast, transmitPacket, watch.detectedProtocol, watch.isConnected, watch.protocolPreference]);
+
+  const handleMeasureBloodPressure = useCallback(async () => {
+    if (!watch.isConnected) {
+      showToast('Connect a watch before measuring blood pressure', true);
+      return;
+    }
+    const resolved = resolveProtocolVersion(watch.detectedProtocol, watch.protocolPreference);
+    setIsMeasuringBloodPressure(true);
+    if (bpTimerRef.current !== null) {
+      window.clearTimeout(bpTimerRef.current);
+    }
+    bpTimerRef.current = window.setTimeout(() => {
+      setIsMeasuringBloodPressure(false);
+      bpTimerRef.current = null;
+    }, 35_000);
+    const ok = await transmitPacket(
+      'Measure Blood Pressure (0x69)',
+      encodeMeasureBloodPressure(resolved),
+      resolved
+    );
+    if (ok) {
+      showToast('Blood pressure reading started on watch');
+    } else {
+      if (bpTimerRef.current !== null) {
+        window.clearTimeout(bpTimerRef.current);
+        bpTimerRef.current = null;
+      }
+      setIsMeasuringBloodPressure(false);
     }
   }, [showToast, transmitPacket, watch.detectedProtocol, watch.isConnected, watch.protocolPreference]);
 
@@ -636,6 +730,21 @@ export default function App() {
 
   const handleDisconnect = () => {
     sessionRef.current!.disconnect();
+    if (hrTimerRef.current !== null) {
+      window.clearTimeout(hrTimerRef.current);
+      hrTimerRef.current = null;
+    }
+    if (spo2TimerRef.current !== null) {
+      window.clearTimeout(spo2TimerRef.current);
+      spo2TimerRef.current = null;
+    }
+    if (bpTimerRef.current !== null) {
+      window.clearTimeout(bpTimerRef.current);
+      bpTimerRef.current = null;
+    }
+    setIsMeasuringHeartRate(false);
+    setIsMeasuringSpo2(false);
+    setIsMeasuringBloodPressure(false);
     setWatch((prev) => ({
       ...prev,
       isConnected: false,
@@ -892,6 +1001,7 @@ export default function App() {
               isSyncing={isSyncingActivity}
               isMeasuringHeartRate={isMeasuringHeartRate}
               isMeasuringSpo2={isMeasuringSpo2}
+              isMeasuringBloodPressure={isMeasuringBloodPressure}
               activity={activityState}
               weeklyDays={weeklyDays}
               todaySteps={todaySteps}
@@ -899,6 +1009,7 @@ export default function App() {
               onRefresh={() => void handleRefreshActivity()}
               onMeasureHeartRate={() => void handleMeasureHeartRate()}
               onMeasureSpo2={() => void handleMeasureSpo2()}
+              onMeasureBloodPressure={() => void handleMeasureBloodPressure()}
               onChangeUnit={(distanceUnit) =>
                 setActivityState((prev) => ({ ...prev, distanceUnit }))
               }

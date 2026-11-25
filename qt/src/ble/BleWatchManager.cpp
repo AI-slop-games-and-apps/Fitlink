@@ -844,6 +844,9 @@ void BleWatchManager::handleParsedHealth(const ParsedHealthPacket &parsed) {
     if (parsed.hasSpo2) {
         emit spo2Received(parsed.spo2Percent);
     }
+    if (parsed.hasBloodPressure) {
+        emit bloodPressureReceived(parsed.systolicMmHg, parsed.diastolicMmHg);
+    }
     if (parsed.hasBattery && parsed.batteryPercent >= 0 && parsed.batteryPercent <= 100) {
         m_batteryLevel = parsed.batteryPercent;
         emit batteryLevelChanged(m_batteryLevel);
@@ -1068,14 +1071,25 @@ bool BleWatchManager::requestHealthSync() {
         return false;
     }
 
-    // Safely read steps & distance directly from 0xFEE1 (no 0xFEE2 system writes)
+    bool sentAny = false;
+    // 1. Read live steps/distance characteristic (0xFEE1) if exposed as readable
     if (m_activityChar.isValid() && (m_activityChar.properties() & QLowEnergyCharacteristic::Read)) {
         enqueueReadChar(m_feeaService, m_activityChar, tr("Read Steps & Distance (0xFEE1)"));
-        return true;
+        sentAny = true;
     }
 
-    emit errorOccurred(tr("Watch does not expose a readable 0xFEE1 steps characteristic."));
-    return false;
+    // 2. Query today's steps & distance via 0x81 (empty-payload get request)
+    if (m_dataOutChar.isValid()) {
+        const auto version = FeeaCodec::resolveVersion(m_detectedProtocol, m_protocolPref);
+        if (enqueuePacket(FeeaCodec::encodeGetTodayActivity(version), tr("Get Steps & Distance (0x81)"))) {
+            sentAny = true;
+        }
+    }
+
+    if (!sentAny) {
+        emit errorOccurred(tr("Watch does not expose 0xFEE1 or 0xFEE2 for steps and distance."));
+    }
+    return sentAny;
 }
 
 bool BleWatchManager::requestHeartRateReading() {
@@ -1084,7 +1098,7 @@ bool BleWatchManager::requestHeartRateReading() {
         return false;
     }
     const auto version = FeeaCodec::resolveVersion(m_detectedProtocol, m_protocolPref);
-    return enqueuePacket(FeeaCodec::encodeMeasureHeartRate(version), tr("Measure Heart Rate (0x69)"));
+    return enqueuePacket(FeeaCodec::encodeMeasureHeartRate(version), tr("Measure Heart Rate (0x6D)"));
 }
 
 bool BleWatchManager::requestSpo2Reading() {
@@ -1094,6 +1108,15 @@ bool BleWatchManager::requestSpo2Reading() {
     }
     const auto version = FeeaCodec::resolveVersion(m_detectedProtocol, m_protocolPref);
     return enqueuePacket(FeeaCodec::encodeMeasureSpo2(version), tr("Measure SpO2 (0x6B)"));
+}
+
+bool BleWatchManager::requestBloodPressureReading() {
+    if (m_state != ConnectionState::Connected || !m_feeaService || !m_dataOutChar.isValid()) {
+        emit errorOccurred(tr("Connect a watch before measuring blood pressure."));
+        return false;
+    }
+    const auto version = FeeaCodec::resolveVersion(m_detectedProtocol, m_protocolPref);
+    return enqueuePacket(FeeaCodec::encodeMeasureBloodPressure(version), tr("Measure Blood Pressure (0x69)"));
 }
 
 } // namespace fitlink

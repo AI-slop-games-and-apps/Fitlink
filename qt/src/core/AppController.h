@@ -60,10 +60,15 @@ class AppController : public QObject {
     Q_PROPERTY(int latestSpo2 READ latestSpo2 NOTIFY activityChanged)
     Q_PROPERTY(QString spo2UpdatedAt READ spo2UpdatedAt NOTIFY activityChanged)
     Q_PROPERTY(QVariantList spo2Samples READ spo2Samples NOTIFY activityChanged)
+    Q_PROPERTY(int latestSystolic READ latestSystolic NOTIFY activityChanged)
+    Q_PROPERTY(int latestDiastolic READ latestDiastolic NOTIFY activityChanged)
+    Q_PROPERTY(QString bloodPressureUpdatedAt READ bloodPressureUpdatedAt NOTIFY activityChanged)
+    Q_PROPERTY(QVariantList bloodPressureSamples READ bloodPressureSamples NOTIFY activityChanged)
     Q_PROPERTY(QString lastActivitySyncText READ lastActivitySyncText NOTIFY activityChanged)
     Q_PROPERTY(bool isSyncingActivity READ isSyncingActivity NOTIFY activityChanged)
     Q_PROPERTY(bool isMeasuringHeartRate READ isMeasuringHeartRate NOTIFY activityChanged)
     Q_PROPERTY(bool isMeasuringSpo2 READ isMeasuringSpo2 NOTIFY activityChanged)
+    Q_PROPERTY(bool isMeasuringBloodPressure READ isMeasuringBloodPressure NOTIFY activityChanged)
 
 public:
     explicit AppController(QObject *parent = nullptr);
@@ -122,10 +127,15 @@ public:
     int latestSpo2() const { return m_latestSpo2; }
     QString spo2UpdatedAt() const;
     QVariantList spo2Samples() const { return m_spo2Samples; }
+    int latestSystolic() const { return m_latestSystolic; }
+    int latestDiastolic() const { return m_latestDiastolic; }
+    QString bloodPressureUpdatedAt() const;
+    QVariantList bloodPressureSamples() const { return m_bloodPressureSamples; }
     QString lastActivitySyncText() const;
     bool isSyncingActivity() const { return m_isSyncingActivity; }
     bool isMeasuringHeartRate() const { return m_isMeasuringHeartRate; }
     bool isMeasuringSpo2() const { return m_isMeasuringSpo2; }
+    bool isMeasuringBloodPressure() const { return m_isMeasuringBloodPressure; }
 
     // BLE & Device actions
     Q_INVOKABLE void recheckBluetoothAvailability();
@@ -169,6 +179,7 @@ public:
     Q_INVOKABLE void refreshActivity();
     Q_INVOKABLE void measureHeartRate();
     Q_INVOKABLE void measureSpo2();
+    Q_INVOKABLE void measureBloodPressure();
     Q_INVOKABLE QString formatDistance(int meters) const;
     Q_INVOKABLE QString formatDistanceWithUnit(int meters) const;
 
@@ -195,6 +206,7 @@ private slots:
     void onActivityDataReceived(int dayOffset, int steps, int distanceMeters);
     void onHeartRateReceived(int bpm);
     void onSpo2Received(int percent);
+    void onBloodPressureReceived(int systolic, int diastolic);
     void onPacketLogged(const QString &direction,
                         const QString &actionLabel,
                         const QString &protocolLabel,
@@ -220,6 +232,7 @@ private:
     QTimer m_schedulerTimer;
     QTimer m_hrMeasureTimer;
     QTimer m_spo2MeasureTimer;
+    QTimer m_bpMeasureTimer;
 
     bool m_use24Hour = true;
     bool m_autoSyncOnConnect = false;
@@ -234,10 +247,15 @@ private:
     int m_latestSpo2 = -1;
     QDateTime m_spo2UpdatedAt;
     QVariantList m_spo2Samples;
+    int m_latestSystolic = -1;
+    int m_latestDiastolic = -1;
+    QDateTime m_bloodPressureUpdatedAt;
+    QVariantList m_bloodPressureSamples;
     QDateTime m_lastActivitySyncedAt;
     bool m_isSyncingActivity = false;
     bool m_isMeasuringHeartRate = false;
     bool m_isMeasuringSpo2 = false;
+    bool m_isMeasuringBloodPressure = false;
 
     QVariantList m_appFilters;
     QVariantList m_templates;

@@ -20,6 +20,11 @@ export interface WeeklyActivityDay {
   isToday: boolean;
 }
 
+export interface BloodPressureSample {
+  systolic: number;
+  diastolic: number;
+}
+
 export interface ActivityState {
   distanceUnit: DistanceUnit;
   dailyDistanceGoalMeters: number;
@@ -30,6 +35,10 @@ export interface ActivityState {
   latestSpo2: number | null;
   spo2UpdatedAt: string | null;
   spo2Samples: number[];
+  latestSystolic: number | null;
+  latestDiastolic: number | null;
+  bloodPressureUpdatedAt: string | null;
+  bloodPressureSamples: BloodPressureSample[];
   lastActivitySyncedAt: string | null;
 }
 

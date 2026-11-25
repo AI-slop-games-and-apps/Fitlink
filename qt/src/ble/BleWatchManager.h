@@ -86,6 +86,7 @@ public:
     bool requestHealthSync();
     bool requestHeartRateReading();
     bool requestSpo2Reading();
+    bool requestBloodPressureReading();
 
 signals:
     void stateChanged(ConnectionState state);
@@ -98,6 +99,7 @@ signals:
     void activityDataReceived(int dayOffset, int steps, int distanceMeters);
     void heartRateReceived(int bpm);
     void spo2Received(int percent);
+    void bloodPressureReceived(int systolic, int diastolic);
     void packetLogged(const QString &direction,
                       const QString &actionLabel,
                       const QString &protocolLabel,

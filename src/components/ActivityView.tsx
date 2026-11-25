@@ -3,19 +3,26 @@ import {
   Activity,
   Droplets,
   Footprints,
+  Gauge,
   HeartPulse,
   Minus,
   Plus,
   RefreshCw,
   Route,
 } from 'lucide-react';
-import type { ActivityState, DistanceUnit, WeeklyActivityDay } from '../types/fitlink';
+import type {
+  ActivityState,
+  BloodPressureSample,
+  DistanceUnit,
+  WeeklyActivityDay,
+} from '../types/fitlink';
 
 interface ActivityViewProps {
   isConnected: boolean;
   isSyncing: boolean;
   isMeasuringHeartRate: boolean;
   isMeasuringSpo2: boolean;
+  isMeasuringBloodPressure: boolean;
   activity: ActivityState;
   weeklyDays: WeeklyActivityDay[];
   todaySteps: number | null;
@@ -23,6 +30,7 @@ interface ActivityViewProps {
   onRefresh: () => void;
   onMeasureHeartRate: () => void;
   onMeasureSpo2: () => void;
+  onMeasureBloodPressure: () => void;
   onChangeUnit: (unit: DistanceUnit) => void;
   onChangeDailyGoalMeters: (meters: number) => void;
 }
@@ -49,6 +57,16 @@ function getSpo2Status(spo2: number | null): { label: string; colorClass: string
   return { label: 'Low (<90%)', colorClass: 'text-[#DC2626]' };
 }
 
+function getBloodPressureStatus(
+  sys: number | null,
+  dia: number | null
+): { label: string; colorClass: string } {
+  if (sys === null || dia === null) return { label: 'No reading yet', colorClass: 'text-[#64748B]' };
+  if (sys < 120 && dia < 80) return { label: 'Normal', colorClass: 'text-[#2563EB]' };
+  if (sys < 130 && dia < 80) return { label: 'Elevated', colorClass: 'text-[#D97706]' };
+  return { label: 'High', colorClass: 'text-[#DC2626]' };
+}
+
 function computeStats(samples: number[]): { min: number; avg: number; max: number } | null {
   if (samples.length === 0) return null;
   let min = samples[0];
@@ -66,11 +84,34 @@ function computeStats(samples: number[]): { min: number; avg: number; max: numbe
   };
 }
 
+function computeBpStats(
+  samples: BloodPressureSample[]
+): { avgSys: number; avgDia: number; minSys: number; maxSys: number } | null {
+  if (samples.length === 0) return null;
+  let sumSys = 0;
+  let sumDia = 0;
+  let minSys = samples[0].systolic;
+  let maxSys = samples[0].systolic;
+  for (const s of samples) {
+    sumSys += s.systolic;
+    sumDia += s.diastolic;
+    if (s.systolic < minSys) minSys = s.systolic;
+    if (s.systolic > maxSys) maxSys = s.systolic;
+  }
+  return {
+    avgSys: Math.round(sumSys / samples.length),
+    avgDia: Math.round(sumDia / samples.length),
+    minSys,
+    maxSys,
+  };
+}
+
 export function ActivityView({
   isConnected,
   isSyncing,
   isMeasuringHeartRate,
   isMeasuringSpo2,
+  isMeasuringBloodPressure,
   activity,
   weeklyDays,
   todaySteps,
@@ -78,6 +119,7 @@ export function ActivityView({
   onRefresh,
   onMeasureHeartRate,
   onMeasureSpo2,
+  onMeasureBloodPressure,
   onChangeUnit,
   onChangeDailyGoalMeters,
 }: ActivityViewProps) {
@@ -118,8 +160,10 @@ export function ActivityView({
 
   const hrStatus = getHeartRateStatus(activity.latestHeartRate);
   const spo2Status = getSpo2Status(activity.latestSpo2);
+  const bpStatus = getBloodPressureStatus(activity.latestSystolic, activity.latestDiastolic);
   const hrStats = computeStats(activity.heartRateSamples);
   const spo2Stats = computeStats(activity.spo2Samples);
+  const bpStats = computeBpStats(activity.bloodPressureSamples);
 
   const stepGoalMeters = (delta: 1 | -1) => {
     const step = unit === 'mi' ? Math.round(0.5 * METERS_PER_MILE) : 500;
@@ -253,7 +297,7 @@ export function ActivityView({
           {/* Row 2, Col 2: SpO2 */}
           <div className="px-4 py-3.5 sm:px-5">
             <div className="flex items-center gap-1.5 text-xs font-medium text-[#64748B]">
-              <Droplets className="h-3.5 w-3.5 text-[#0891B2]" />
+              <Droplets className="h-3.5 w-3.5 text-[#16A34A]" />
               <span>SpO2</span>
             </div>
             <div className="mt-1 flex items-baseline gap-1">
@@ -561,13 +605,13 @@ export function ActivityView({
             </div>
           </div>
 
-          {/* Right Side: SpO2 */}
+          {/* Right Side: SpO2 (Green) */}
           <div className="flex flex-col justify-between p-6">
             <div>
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <Droplets className="h-4 w-4 text-[#0891B2]" />
+                    <Droplets className="h-4 w-4 text-[#16A34A]" />
                     <h3 className="text-base font-semibold text-[#0F172A]">SpO2</h3>
                   </div>
                   <div className="mt-0.5 font-mono text-xs text-[#64748B] tabular-nums">
@@ -580,7 +624,7 @@ export function ActivityView({
                   type="button"
                   onClick={onMeasureSpo2}
                   disabled={!isConnected || isMeasuringSpo2}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#0891B2] px-3 text-xs font-medium text-white transition-colors hover:bg-[#0E7490] disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0891B2] whitespace-nowrap shrink-0"
+                  className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#16A34A] px-3 text-xs font-medium text-white transition-colors hover:bg-[#15803D] disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#16A34A] whitespace-nowrap shrink-0"
                 >
                   <Droplets className={`h-3.5 w-3.5 ${isMeasuringSpo2 ? 'animate-pulse' : ''}`} />
                   <span>{isMeasuringSpo2 ? 'Measuring...' : 'Measure'}</span>
@@ -589,7 +633,7 @@ export function ActivityView({
 
               <div className="mt-5 flex items-baseline justify-between gap-4">
                 <div className="flex items-baseline gap-1">
-                  <span className="font-mono text-4xl font-semibold tracking-tight text-[#0F172A] tabular-nums">
+                  <span className="font-mono text-4xl font-semibold tracking-tight text-[#16A34A] tabular-nums">
                     {activity.latestSpo2 !== null ? activity.latestSpo2 : '--'}
                   </span>
                   <span className="text-sm font-medium text-[#64748B]">%</span>
@@ -648,8 +692,8 @@ export function ActivityView({
                         sample === null
                           ? 'bg-[#E2E8F0]'
                           : isLatest
-                          ? 'bg-[#0891B2]'
-                          : 'bg-[#67E8F9]'
+                          ? 'bg-[#16A34A]'
+                          : 'bg-[#86EFAC]'
                       }`}
                       style={{ height: `${pct}%` }}
                     />
@@ -657,6 +701,106 @@ export function ActivityView({
                 })}
               </div>
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* 4. Dedicated Blood Pressure Card (Blue) */}
+      <section className="rounded-2xl border border-[#E2E8F0] bg-white p-6">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <Gauge className="h-4 w-4 text-[#2563EB]" />
+              <h3 className="text-base font-semibold text-[#0F172A]">Blood Pressure</h3>
+            </div>
+            <div className="mt-0.5 font-mono text-xs text-[#64748B] tabular-nums">
+              {activity.bloodPressureUpdatedAt
+                ? `Updated ${activity.bloodPressureUpdatedAt}`
+                : 'Waiting for sensor'}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onMeasureBloodPressure}
+            disabled={!isConnected || isMeasuringBloodPressure}
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#2563EB] px-3 text-xs font-medium text-white transition-colors hover:bg-[#1D4ED8] disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563EB] whitespace-nowrap shrink-0"
+          >
+            <Gauge className={`h-3.5 w-3.5 ${isMeasuringBloodPressure ? 'animate-pulse' : ''}`} />
+            <span>{isMeasuringBloodPressure ? 'Measuring...' : 'Measure'}</span>
+          </button>
+        </div>
+
+        <div className="mt-5 flex flex-wrap items-baseline justify-between gap-4">
+          <div className="flex items-baseline gap-1.5">
+            <span className="font-mono text-4xl font-semibold tracking-tight text-[#2563EB] tabular-nums">
+              {activity.latestSystolic !== null && activity.latestDiastolic !== null
+                ? `${activity.latestSystolic}/${activity.latestDiastolic}`
+                : '--/--'}
+            </span>
+            <span className="text-sm font-medium text-[#64748B]">mmHg</span>
+          </div>
+          <span className={`text-xs font-semibold ${bpStatus.colorClass}`}>{bpStatus.label}</span>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-4 border-t border-[#F1F5F9] pt-3 text-xs text-[#64748B] tabular-nums">
+          <span>
+            Average:{' '}
+            <strong className="font-mono font-semibold text-[#0F172A]">
+              {bpStats ? `${bpStats.avgSys}/${bpStats.avgDia} mmHg` : '--/--'}
+            </strong>
+          </span>
+          <span>
+            Systolic Range:{' '}
+            <strong className="font-mono font-semibold text-[#0F172A]">
+              {bpStats ? `${bpStats.minSys}–${bpStats.maxSys} mmHg` : '--'}
+            </strong>
+          </span>
+          <span>
+            Readings:{' '}
+            <strong className="font-mono font-semibold text-[#0F172A]">
+              {activity.bloodPressureSamples.length}
+            </strong>
+          </span>
+        </div>
+
+        {/* Recent Blood Pressure Samples Bar Strip */}
+        <div className="mt-5">
+          <div className="mb-2 flex items-center justify-between text-[11px] font-medium text-[#64748B]">
+            <span>Recent Readings</span>
+            <span className="font-mono tabular-nums">
+              {activity.bloodPressureSamples.length > 0
+                ? `${activity.bloodPressureSamples.length} samples`
+                : '0 samples'}
+            </span>
+          </div>
+          <div className="grid h-14 grid-cols-12 items-end gap-1.5 rounded-xl bg-[#F8FAFC] p-2.5">
+            {Array.from({ length: 12 }).map((_, idx) => {
+              const offset = 12 - activity.bloodPressureSamples.length;
+              const sample = idx >= offset ? activity.bloodPressureSamples[idx - offset] : null;
+              const isLatest = sample !== null && idx === 11;
+              const pct =
+                sample !== null
+                  ? Math.max(15, Math.min(100, ((sample.systolic - 80) / (180 - 80)) * 100))
+                  : 12;
+              return (
+                <div
+                  key={idx}
+                  title={
+                    sample !== null
+                      ? `${sample.systolic}/${sample.diastolic} mmHg`
+                      : 'No sample'
+                  }
+                  className={`w-full rounded-sm transition-all ${
+                    sample === null
+                      ? 'bg-[#E2E8F0]'
+                      : isLatest
+                      ? 'bg-[#2563EB]'
+                      : 'bg-[#93C5FD]'
+                  }`}
+                  style={{ height: `${pct}%` }}
+                />
+              );
+            })}
           </div>
         </div>
       </section>

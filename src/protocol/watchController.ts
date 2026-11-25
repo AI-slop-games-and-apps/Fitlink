@@ -94,6 +94,7 @@ export class WebBleWatchSession {
   onActivityDataReceived?: (dayOffset: number, steps: number, distanceMeters: number) => void;
   onHeartRateReceived?: (bpm: number) => void;
   onSpo2Received?: (spo2: number) => void;
+  onBloodPressureReceived?: (systolic: number, diastolic: number) => void;
 
   get isVirtual(): boolean {
     return this.virtual;
@@ -364,6 +365,46 @@ export class WebBleWatchSession {
       const cmd = packet[4] ?? 0x00;
       const version: 'v1' | 'v2' = (packet[2] & 0xf0) === 0x10 ? 'v1' : 'v2';
 
+      if (cmd === FEEA_CMD.GET_TODAY_ACTIVITY) {
+        await new Promise((resolve) => setTimeout(resolve, 220));
+        this.virtualSyncCount += 1;
+        const bump = this.virtualSyncCount * 145;
+        const steps = 7840 + bump;
+        const meters = 5820 + Math.round(bump * 0.74);
+        const payload = new Uint8Array([
+          (steps >> 16) & 0xff,
+          (steps >> 8) & 0xff,
+          steps & 0xff,
+          (meters >> 16) & 0xff,
+          (meters >> 8) & 0xff,
+          meters & 0xff,
+        ]);
+        const responseFrame = framePacket(version, FEEA_CMD.GET_TODAY_ACTIVITY, payload);
+        this.dispatchParsedHealth(parseFeeaHealthResponse(responseFrame));
+        return { chunks: chunks.length, ackHex: bytesToHex(responseFrame) };
+      }
+
+      if (cmd === FEEA_CMD.MEASURE_BLOOD_PRESSURE) {
+        await new Promise((resolve) => setTimeout(resolve, 750));
+        this.virtualSyncCount += 1;
+        const bpSeries: Array<[number, number]> = [
+          [118, 76],
+          [122, 79],
+          [116, 74],
+          [120, 78],
+          [114, 73],
+          [124, 80],
+        ];
+        const [sys, dia] = bpSeries[this.virtualSyncCount % bpSeries.length];
+        const responseFrame = framePacket(
+          version,
+          FEEA_CMD.MEASURE_BLOOD_PRESSURE,
+          new Uint8Array([sys, dia])
+        );
+        this.dispatchParsedHealth(parseFeeaHealthResponse(responseFrame));
+        return { chunks: chunks.length, ackHex: bytesToHex(responseFrame) };
+      }
+
       if (cmd === FEEA_CMD.MEASURE_HEART_RATE) {
         await new Promise((resolve) => setTimeout(resolve, 750));
         this.virtualSyncCount += 1;
@@ -513,6 +554,8 @@ export class WebBleWatchSession {
       this.onHeartRateReceived?.(parsed.heartRateBpm);
     } else if (parsed.type === 'spo2') {
       this.onSpo2Received?.(parsed.spo2Percent);
+    } else if (parsed.type === 'bloodPressure') {
+      this.onBloodPressureReceived?.(parsed.systolicMmHg, parsed.diastolicMmHg);
     } else if (parsed.type === 'battery' && parsed.batteryPercent >= 0) {
       this.onBatteryChanged?.(parsed.batteryPercent);
     }

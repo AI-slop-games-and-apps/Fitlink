@@ -51,10 +51,13 @@ export const FEEA_CMD = {
   GET_TIME: 0x41,
   FIND_WATCH: 0x61,
   PUSH_NOTIFICATION: 0x64,
-  MEASURE_HEART_RATE: 0x69, // 0x69 start / 0x6A stop single HR
-  STOP_HEART_RATE: 0x6a,
-  MEASURE_SPO2: 0x6b, // 0x6B start / 0x6C stop SpO2
+  MEASURE_BLOOD_PRESSURE: 0x69, // 0x69 start / 0x6A stop single Blood Pressure (verified on BSW003)
+  STOP_BLOOD_PRESSURE: 0x6a,
+  MEASURE_SPO2: 0x6b, // 0x6B start / 0x6C stop SpO2 (verified on BSW003)
   STOP_SPO2: 0x6c,
+  MEASURE_HEART_RATE: 0x6d, // 0x6D start / 0x6E stop single Heart Rate
+  STOP_HEART_RATE: 0x6e,
+  GET_TODAY_ACTIVITY: 0x81, // Empty-payload get request for today's steps & distance
   WORKOUT: 0xb2, // sub-cmd: 0x00 list req, 0x01 list resp
   ADVANCED: 0xb9, // sub-commands follow get = set + 0x10
 } as const;
@@ -66,12 +69,14 @@ export const FEEA_SUBCMD = {
 } as const;
 
 export interface ParsedHealthPacket {
-  type: 'none' | 'activity' | 'heartRate' | 'spo2' | 'battery';
+  type: 'none' | 'activity' | 'heartRate' | 'spo2' | 'bloodPressure' | 'battery';
   dayOffset: number;
   steps: number;
   distanceMeters: number;
   heartRateBpm: number;
   spo2Percent: number;
+  systolicMmHg: number;
+  diastolicMmHg: number;
   batteryPercent: number;
 }
 
@@ -135,8 +140,18 @@ export function describeIncomingFrame(frame: Uint8Array): string {
   if (cmd === FEEA_CMD.GET_TIME) return `Time Response (${hexCmd})`;
   if (cmd === FEEA_CMD.GET_TIME_FORMAT) return `Time Format (${hexCmd})`;
   if (cmd === FEEA_CMD.GET_ALARMS) return `Alarms (${hexCmd})`;
-  if (cmd === FEEA_CMD.MEASURE_HEART_RATE || cmd === FEEA_CMD.STOP_HEART_RATE || cmd === 0x6d || cmd === 0x6f) return `Heart Rate (${hexCmd})`;
+  if (cmd === FEEA_CMD.MEASURE_BLOOD_PRESSURE || cmd === FEEA_CMD.STOP_BLOOD_PRESSURE)
+    return `Blood Pressure (${hexCmd})`;
   if (cmd === FEEA_CMD.MEASURE_SPO2 || cmd === FEEA_CMD.STOP_SPO2) return `SpO2 (${hexCmd})`;
+  if (
+    cmd === FEEA_CMD.MEASURE_HEART_RATE ||
+    cmd === FEEA_CMD.STOP_HEART_RATE ||
+    cmd === 0x6f ||
+    cmd === 0x67 ||
+    cmd === 0x68
+  )
+    return `Heart Rate (${hexCmd})`;
+  if (cmd === FEEA_CMD.GET_TODAY_ACTIVITY) return `Steps & Distance (${hexCmd})`;
   if (cmd === FEEA_CMD.WORKOUT && frame.length >= 6) {
     const sub = frame[5].toString(16).padStart(2, '0').toUpperCase();
     return `Workout (${hexCmd} ${sub})`;
@@ -277,8 +292,18 @@ export function encodeFindWatch(version: 'v1' | 'v2'): Uint8Array {
   return encodeGetCommand(version, FEEA_CMD.FIND_WATCH);
 }
 
+export function encodeGetTodayActivity(version: 'v1' | 'v2'): Uint8Array {
+  // Empty-payload get request for today's steps & distance: FE EA 10/20 05 81
+  return encodeGetCommand(version, FEEA_CMD.GET_TODAY_ACTIVITY);
+}
+
+export function encodeMeasureBloodPressure(version: 'v1' | 'v2'): Uint8Array {
+  // Verified 0xFEEA Blood Pressure (BP) trigger: FE EA 10/20 06 69 00
+  return framePacket(version, FEEA_CMD.MEASURE_BLOOD_PRESSURE, new Uint8Array([0x00]));
+}
+
 export function encodeMeasureHeartRate(version: 'v1' | 'v2'): Uint8Array {
-  // Single Heart Rate trigger matching 0x6B SpO2 convention: FE EA 10/20 06 69 00
+  // Single Heart Rate trigger matching 0x69 BP / 0x6B SpO2 convention: FE EA 10/20 06 6D 00
   return framePacket(version, FEEA_CMD.MEASURE_HEART_RATE, new Uint8Array([0x00]));
 }
 
@@ -362,6 +387,8 @@ export function parseFee1Activity(value: Uint8Array): ParsedHealthPacket {
     distanceMeters: 0,
     heartRateBpm: 0,
     spo2Percent: 0,
+    systolicMmHg: 0,
+    diastolicMmHg: 0,
     batteryPercent: -1,
   };
   if (value.length === 0) return empty;
@@ -389,6 +416,8 @@ export function parseFeeaHealthResponse(frame: Uint8Array): ParsedHealthPacket {
     distanceMeters: 0,
     heartRateBpm: 0,
     spo2Percent: 0,
+    systolicMmHg: 0,
+    diastolicMmHg: 0,
     batteryPercent: -1,
   };
   if (frame.length < 6 || frame[0] !== 0xfe || frame[1] !== 0xea) {
@@ -398,10 +427,12 @@ export function parseFeeaHealthResponse(frame: Uint8Array): ParsedHealthPacket {
   const cmd = frame[4];
   const payload = frame.subarray(5);
 
-  if (cmd === 0x09 && payload.length >= 3) {
+  if ((cmd === FEEA_CMD.GET_TODAY_ACTIVITY || cmd === 0x09) && payload.length >= 3) {
     let offset = 0;
     let dayOffset = 0;
-    if (payload.length >= 7 && payload[0] <= 6) {
+    // Only treat byte 0 as a dayOffset when the payload explicitly carries 1 + 6 or 1 + 9 bytes.
+    // Standard 6-byte [steps(3), dist(3)] or 9-byte [steps(3), dist(3), cal(3)] payloads start at 0.
+    if ((payload.length === 7 || payload.length === 10) && payload[0] <= 6) {
       dayOffset = payload[0];
       offset = 1;
     }
@@ -418,10 +449,30 @@ export function parseFeeaHealthResponse(frame: Uint8Array): ParsedHealthPacket {
   }
 
   if (
+    (cmd === FEEA_CMD.MEASURE_BLOOD_PRESSURE || cmd === FEEA_CMD.STOP_BLOOD_PRESSURE) &&
+    payload.length >= 2
+  ) {
+    // Handles both [systolic, diastolic] and [status, systolic, diastolic]
+    for (let i = payload.length - 2; i >= 0; i -= 1) {
+      const sys = payload[i];
+      const dia = payload[i + 1];
+      if (sys >= 70 && sys <= 240 && dia >= 40 && dia <= 150 && sys > dia) {
+        return {
+          ...empty,
+          type: 'bloodPressure',
+          systolicMmHg: sys,
+          diastolicMmHg: dia,
+        };
+      }
+    }
+  }
+
+  if (
     (cmd === FEEA_CMD.MEASURE_HEART_RATE ||
       cmd === FEEA_CMD.STOP_HEART_RATE ||
-      cmd === 0x6d ||
       cmd === 0x6f ||
+      cmd === 0x67 ||
+      cmd === 0x68 ||
       cmd === 0x0a) &&
     payload.length >= 1
   ) {

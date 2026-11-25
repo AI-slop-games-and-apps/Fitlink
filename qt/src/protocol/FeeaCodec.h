@@ -79,6 +79,9 @@ struct ParsedHealthPacket {
     int heartRateBpm = 0;
     bool hasSpo2 = false;
     int spo2Percent = 0;
+    bool hasBloodPressure = false;
+    int systolicMmHg = 0;
+    int diastolicMmHg = 0;
     bool hasBattery = false;
     int batteryPercent = -1;
 };
@@ -98,14 +101,17 @@ public:
     static constexpr uint8_t CmdGetTimeFormat     = 0x37;
     static constexpr uint8_t CmdSetTime           = 0x31;
     static constexpr uint8_t CmdGetTime           = 0x41;
-    static constexpr uint8_t CmdFindWatch         = 0x61;
-    static constexpr uint8_t CmdPushNotification  = 0x64;
-    static constexpr uint8_t CmdMeasureHeartRate  = 0x69; // 0x69 start / 0x6A stop single HR
-    static constexpr uint8_t CmdStopHeartRate     = 0x6A;
-    static constexpr uint8_t CmdMeasureSpo2       = 0x6B; // 0x6B start / 0x6C stop SpO2
-    static constexpr uint8_t CmdStopSpo2          = 0x6C;
-    static constexpr uint8_t CmdWorkout           = 0xB2; // sub-cmd: 0x00 list req, 0x01 list resp
-    static constexpr uint8_t CmdAdvanced          = 0xB9; // sub-commands follow get = set + 0x10
+    static constexpr uint8_t CmdFindWatch          = 0x61;
+    static constexpr uint8_t CmdPushNotification   = 0x64;
+    static constexpr uint8_t CmdMeasureBloodPress  = 0x69; // 0x69 start / 0x6A stop Blood Pressure
+    static constexpr uint8_t CmdStopBloodPress     = 0x6A;
+    static constexpr uint8_t CmdMeasureSpo2        = 0x6B; // 0x6B start / 0x6C stop SpO2
+    static constexpr uint8_t CmdStopSpo2           = 0x6C;
+    static constexpr uint8_t CmdMeasureHeartRate   = 0x6D; // 0x6D start / 0x6E stop Heart Rate
+    static constexpr uint8_t CmdStopHeartRate      = 0x6E;
+    static constexpr uint8_t CmdGetTodayActivity   = 0x81; // Empty-payload steps/distance query
+    static constexpr uint8_t CmdWorkout            = 0xB2; // sub-cmd: 0x00 list req, 0x01 list resp
+    static constexpr uint8_t CmdAdvanced           = 0xB9; // sub-commands follow get = set + 0x10
 
     static constexpr uint8_t SubCmdWorkoutListReq  = 0x00;
     static constexpr uint8_t SubCmdWorkoutListResp = 0x01;
@@ -132,8 +138,10 @@ public:
                                          const QString &body,
                                          int maxUtf8Bytes = 128);
     static QByteArray encodeFindWatch(ProtocolVersion version);
+    static QByteArray encodeGetTodayActivity(ProtocolVersion version);
     static QByteArray encodeMeasureHeartRate(ProtocolVersion version);
     static QByteArray encodeMeasureSpo2(ProtocolVersion version);
+    static QByteArray encodeMeasureBloodPressure(ProtocolVersion version);
     static QByteArray encodeWorkoutListRequest(ProtocolVersion version);
 
     static ParsedHealthPacket parseFeeaHealthResponse(const QByteArray &frame);

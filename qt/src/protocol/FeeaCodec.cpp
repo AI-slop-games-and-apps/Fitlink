@@ -187,8 +187,10 @@ QString FeeaCodec::describeIncomingFrame(const QByteArray &frame) {
     if (cmd == CmdGetTime) return QStringLiteral("Time Response (%1)").arg(hexCmd);
     if (cmd == CmdGetTimeFormat) return QStringLiteral("Time Format (%1)").arg(hexCmd);
     if (cmd == CmdGetAlarms) return QStringLiteral("Alarms (%1)").arg(hexCmd);
-    if (cmd == CmdMeasureHeartRate || cmd == CmdStopHeartRate || cmd == 0x6F || cmd == 0x6D) return QStringLiteral("Heart Rate (%1)").arg(hexCmd);
+    if (cmd == CmdGetTodayActivity) return QStringLiteral("Steps & Distance (%1)").arg(hexCmd);
+    if (cmd == CmdMeasureBloodPress || cmd == CmdStopBloodPress) return QStringLiteral("Blood Pressure (%1)").arg(hexCmd);
     if (cmd == CmdMeasureSpo2 || cmd == CmdStopSpo2) return QStringLiteral("SpO2 (%1)").arg(hexCmd);
+    if (cmd == CmdMeasureHeartRate || cmd == CmdStopHeartRate || cmd == 0x6F || cmd == 0x67) return QStringLiteral("Heart Rate (%1)").arg(hexCmd);
     if (cmd == CmdWorkout && frame.size() >= 6) {
         const uint8_t sub = static_cast<uint8_t>(frame.at(5));
         return QStringLiteral("Workout (%1 %2)").arg(hexCmd, QStringLiteral("%1").arg(sub, 2, 16, QLatin1Char('0')).toUpper());
@@ -302,18 +304,30 @@ QByteArray FeeaCodec::encodeFindWatch(ProtocolVersion version) {
     return encodeGetCommand(version, CmdFindWatch);
 }
 
+QByteArray FeeaCodec::encodeGetTodayActivity(ProtocolVersion version) {
+    // Empty-payload get request for today's steps & distance (totalLen = 5: FE EA 10/20 05 81)
+    return encodeGetCommand(version, CmdGetTodayActivity);
+}
+
 QByteArray FeeaCodec::encodeMeasureHeartRate(ProtocolVersion version) {
-    // Single Heart Rate trigger matching 0x6B SpO2 convention: FE EA 10/20 06 69 00
+    // Heart Rate trigger: FE EA 10/20 06 6D 00
     QByteArray payload;
     payload.append(static_cast<char>(0x00));
     return framePacket(version, CmdMeasureHeartRate, payload);
 }
 
 QByteArray FeeaCodec::encodeMeasureSpo2(ProtocolVersion version) {
-    // Verified 0xFEEA Blood Oxygen (SpO2) trigger: FE EA 10/20 06 6B 00
+    // Verified Blood Oxygen (SpO2) trigger: FE EA 10/20 06 6B 00
     QByteArray payload;
     payload.append(static_cast<char>(0x00));
     return framePacket(version, CmdMeasureSpo2, payload);
+}
+
+QByteArray FeeaCodec::encodeMeasureBloodPressure(ProtocolVersion version) {
+    // Verified Blood Pressure (BP) trigger: FE EA 10/20 06 69 00
+    QByteArray payload;
+    payload.append(static_cast<char>(0x00));
+    return framePacket(version, CmdMeasureBloodPress, payload);
 }
 
 QByteArray FeeaCodec::encodeWorkoutListRequest(ProtocolVersion version) {
@@ -393,9 +407,11 @@ ParsedHealthPacket FeeaCodec::parseFeeaHealthResponse(const QByteArray &frame) {
     const uint8_t cmd = static_cast<uint8_t>(frame.at(4));
     const QByteArray payload = frame.mid(5);
 
-    if (cmd == 0x09 && payload.size() >= 3) {
+    if ((cmd == CmdGetTodayActivity || cmd == 0x09) && payload.size() >= 3) {
         int offset = 0;
-        if (payload.size() >= 7 && static_cast<uint8_t>(payload.at(0)) <= 6) {
+        // Only treat byte 0 as dayOffset when payload is 7 (1+6) or 10 (1+9) bytes;
+        // 6-byte [steps_3B, dist_3B] and 9-byte [steps_3B, dist_3B, cal_3B] start at offset 0.
+        if ((payload.size() == 7 || payload.size() == 10) && static_cast<uint8_t>(payload.at(0)) <= 6) {
             out.dayOffset = static_cast<uint8_t>(payload.at(0));
             offset = 1;
         }
@@ -411,7 +427,22 @@ ParsedHealthPacket FeeaCodec::parseFeeaHealthResponse(const QByteArray &frame) {
         }
     }
 
-    if ((cmd == CmdMeasureHeartRate || cmd == CmdStopHeartRate || cmd == 0x6D || cmd == 0x6F || cmd == 0x0A)
+    if ((cmd == CmdMeasureBloodPress || cmd == CmdStopBloodPress) && payload.size() >= 2) {
+        // Parse [systolic, diastolic] pair (or [status, systolic, diastolic])
+        for (int i = 0; i + 1 < payload.size(); ++i) {
+            const int sys = static_cast<uint8_t>(payload.at(i));
+            const int dia = static_cast<uint8_t>(payload.at(i + 1));
+            if (sys >= 70 && sys <= 240 && dia >= 40 && dia <= 150 && sys > dia) {
+                out.hasBloodPressure = true;
+                out.systolicMmHg = sys;
+                out.diastolicMmHg = dia;
+                out.valid = true;
+                return out;
+            }
+        }
+    }
+
+    if ((cmd == CmdMeasureHeartRate || cmd == CmdStopHeartRate || cmd == 0x6F || cmd == 0x67 || cmd == 0x68 || cmd == 0x0A)
         && !payload.isEmpty()) {
         for (int i = payload.size() - 1; i >= 0; --i) {
             const int candidate = static_cast<uint8_t>(payload.at(i));

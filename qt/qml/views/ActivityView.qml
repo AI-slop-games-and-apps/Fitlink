@@ -102,6 +102,30 @@ ScrollView {
         return qsTr("Low (< 90%)")
     }
 
+    function bpStatsText() {
+        var samples = appController.bloodPressureSamples
+        if (!samples || samples.length === 0) {
+            return qsTr("No blood pressure samples yet")
+        }
+        var sumSys = 0, sumDia = 0
+        for (var i = 0; i < samples.length; ++i) {
+            sumSys += Number(samples[i].systolic)
+            sumDia += Number(samples[i].diastolic)
+        }
+        var avgSys = Math.round(sumSys / samples.length)
+        var avgDia = Math.round(sumDia / samples.length)
+        return qsTr("Avg %1/%2 mmHg · %3 readings").arg(avgSys).arg(avgDia).arg(samples.length)
+    }
+
+    function bpStatusText() {
+        var sys = appController.latestSystolic
+        var dia = appController.latestDiastolic
+        if (sys <= 0 || dia <= 0) return qsTr("Awaiting reading")
+        if (sys < 120 && dia < 80) return qsTr("Normal")
+        if (sys < 130 && dia < 80) return qsTr("Elevated")
+        return qsTr("High")
+    }
+
     ColumnLayout {
         width: Math.min(root.availableWidth - 48, 960)
         anchors.horizontalCenter: parent.horizontalCenter
@@ -734,7 +758,7 @@ ScrollView {
                     color: "#E2E8F0"
                 }
 
-                // Right Half: SpO2 (Blood Oxygen)
+                // Right Half: SpO2 (Blood Oxygen — Green)
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: 12
@@ -760,7 +784,7 @@ ScrollView {
                         Button {
                             text: appController.isMeasuringSpo2 ? qsTr("Measuring...") : qsTr("Measure")
                             highlighted: true
-                            Material.accent: "#0284C7"
+                            Material.accent: "#16A34A"
                             implicitHeight: 32
                             font.pixelSize: 12
                             enabled: appController.isConnected && !appController.isMeasuringSpo2
@@ -774,7 +798,7 @@ ScrollView {
                             text: appController.latestSpo2 > 0 ? String(appController.latestSpo2) : "--"
                             font.pixelSize: 32
                             font.weight: Font.Bold
-                            color: appController.latestSpo2 > 0 ? "#0284C7" : "#0F172A"
+                            color: appController.latestSpo2 > 0 ? "#16A34A" : "#0F172A"
                         }
                         Label {
                             text: "%"
@@ -801,7 +825,7 @@ ScrollView {
                         Layout.fillWidth: true
                     }
 
-                    // Compact recent SpO2 sample bar strip
+                    // Compact recent SpO2 sample bar strip (Green)
                     Item {
                         Layout.fillWidth: true
                         Layout.preferredHeight: 56
@@ -825,7 +849,7 @@ ScrollView {
                                         anchors.right: parent.right
                                         height: parent.height * norm
                                         radius: 3
-                                        color: "#7DD3FC"
+                                        color: "#86EFAC"
                                     }
                                 }
                             }
@@ -834,10 +858,132 @@ ScrollView {
                         Label {
                             anchors.centerIn: parent
                             visible: appController.spo2Samples.length === 0
-                            text: qsTr("Recent SpO2 trend appears after sync")
+                            text: qsTr("Recent SpO2 trend appears after reading")
                             font.pixelSize: 12
                             color: "#94A3B8"
                         }
+                    }
+                }
+            }
+        }
+
+        // 4. Blood Pressure (BP) Card — Blue (#2563EB)
+        Rectangle {
+            Layout.fillWidth: true
+            implicitHeight: bpCardCol.implicitHeight + 40
+            radius: 14
+            color: "#FFFFFF"
+            border.color: "#E2E8F0"
+            border.width: 1
+
+            ColumnLayout {
+                id: bpCardCol
+                anchors.fill: parent
+                anchors.margins: 20
+                spacing: 12
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 1
+                        Label {
+                            text: qsTr("Blood Pressure (BP)")
+                            font.pixelSize: 15
+                            font.weight: Font.Bold
+                            color: "#0F172A"
+                        }
+                        Label {
+                            text: appController.bloodPressureUpdatedAt
+                            font.pixelSize: 11
+                            color: "#64748B"
+                        }
+                    }
+                    Button {
+                        text: appController.isMeasuringBloodPressure ? qsTr("Measuring...") : qsTr("Measure")
+                        highlighted: true
+                        Material.accent: "#2563EB"
+                        implicitHeight: 32
+                        font.pixelSize: 12
+                        enabled: appController.isConnected && !appController.isMeasuringBloodPressure
+                        onClicked: appController.measureBloodPressure()
+                    }
+                }
+
+                RowLayout {
+                    spacing: 8
+                    Label {
+                        text: (appController.latestSystolic > 0 && appController.latestDiastolic > 0)
+                              ? qsTr("%1/%2").arg(appController.latestSystolic).arg(appController.latestDiastolic)
+                              : "--/--"
+                        font.pixelSize: 32
+                        font.weight: Font.Bold
+                        color: (appController.latestSystolic > 0 && appController.latestDiastolic > 0) ? "#2563EB" : "#0F172A"
+                    }
+                    Label {
+                        text: "mmHg"
+                        font.pixelSize: 14
+                        font.weight: Font.Medium
+                        color: "#64748B"
+                        Layout.alignment: Qt.AlignBottom
+                        Layout.bottomMargin: 4
+                    }
+                    Item { Layout.fillWidth: true }
+                    Label {
+                        text: root.bpStatusText()
+                        font.pixelSize: 12
+                        font.weight: Font.Medium
+                        color: (appController.latestSystolic <= 0) ? "#64748B"
+                               : ((appController.latestSystolic < 120 && appController.latestDiastolic < 80) ? "#16A34A"
+                               : (appController.latestSystolic < 130 ? "#D97706" : "#DC2626"))
+                    }
+                }
+
+                Label {
+                    text: root.bpStatsText()
+                    font.pixelSize: 12
+                    color: "#64748B"
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                }
+
+                // Compact recent Blood Pressure sample bar strip (Blue)
+                Item {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 56
+
+                    RowLayout {
+                        anchors.fill: parent
+                        spacing: 4
+                        visible: appController.bloodPressureSamples.length > 0
+
+                        Repeater {
+                            model: appController.bloodPressureSamples
+                            delegate: Item {
+                                required property var modelData
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                readonly property real normSys: Math.max(0.2, Math.min(1.0, (Number(modelData.systolic) - 70) / 110.0))
+
+                                Rectangle {
+                                    anchors.bottom: parent.bottom
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    height: parent.height * normSys
+                                    radius: 3
+                                    color: "#93C5FD"
+                                }
+                            }
+                        }
+                    }
+
+                    Label {
+                        anchors.centerIn: parent
+                        visible: appController.bloodPressureSamples.length === 0
+                        text: qsTr("Recent BP trend appears after reading")
+                        font.pixelSize: 12
+                        color: "#94A3B8"
                     }
                 }
             }
