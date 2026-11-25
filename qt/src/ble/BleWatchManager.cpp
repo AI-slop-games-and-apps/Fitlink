@@ -985,20 +985,28 @@ bool BleWatchManager::enqueuePacket(const QByteArray &packet, const QString &act
         ? QLowEnergyService::WriteWithResponse
         : QLowEnergyService::WriteWithoutResponse;
 
-    const auto chunks = FeeaCodec::chunkPacket(packet, m_mtuSize);
-    for (const auto &chunk : chunks) {
+    const auto activeVersion = FeeaCodec::resolveVersion(m_detectedProtocol, m_protocolPref);
+    int effectiveMtu = m_mtuSize;
+    if (activeVersion == ProtocolVersion::V2 && m_controller) {
+        const int negotiatedMtu = m_controller->mtu();
+        if (negotiatedMtu > 23) {
+            effectiveMtu = std::clamp(negotiatedMtu - 3, m_mtuSize, 244);
+        }
+    }
+
+    const auto chunks = FeeaCodec::chunkPacket(packet, effectiveMtu);
+    for (int i = 0; i < chunks.size(); ++i) {
         GattOp op;
         op.type = GattOp::Type::WriteChar;
         op.service = m_feeaService;
         op.characteristic = m_dataOutChar;
-        op.value = chunk;
+        op.value = chunks.at(i);
         op.writeMode = mode;
         op.label = actionLabel;
-        op.postDelayMs = m_writeDelayMs;
+        op.postDelayMs = (i + 1 < chunks.size()) ? std::min(m_writeDelayMs, 20) : m_writeDelayMs;
         m_gattOpQueue.enqueue(op);
     }
 
-    const auto activeVersion = FeeaCodec::resolveVersion(m_detectedProtocol, m_protocolPref);
     emit packetLogged(QStringLiteral("tx"),
                       actionLabel,
                       FeeaCodec::versionLabel(activeVersion),

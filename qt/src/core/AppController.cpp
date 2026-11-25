@@ -259,7 +259,7 @@ int AppController::utf8ByteLength(const QString &title, const QString &body) con
 }
 
 int AppController::estimatedChunkCount(const QString &title, const QString &body) const {
-    const int bytes = std::min(128, utf8ByteLength(title, body)) + 7; // header + icon + len
+    const int bytes = std::min(128, utf8ByteLength(title, body)) + 6; // header (5) + icon (1)
     const int mtu = std::max(20, m_ble->mtuSize());
     return std::max(1, (bytes + mtu - 1) / mtu);
 }
@@ -806,6 +806,7 @@ void AppController::loadPersistedState() {
     m_ble->setProtocolPreference(static_cast<ProtocolPreference>(settings.value(QStringLiteral("protocol/pref"), 0).toInt()));
     m_ble->setMtuSize(settings.value(QStringLiteral("protocol/mtu"), 20).toInt());
     m_ble->setWriteDelayMs(settings.value(QStringLiteral("protocol/delayMs"), 50).toInt());
+    m_osBridge->setEnabled(settings.value(QStringLiteral("notifications/osMirroringEnabled"), true).toBool());
 
     QFile file(stateFilePath());
     if (file.open(QIODevice::ReadOnly)) {
@@ -839,6 +840,7 @@ void AppController::savePersistedState() const {
     settings.setValue(QStringLiteral("protocol/pref"), static_cast<int>(m_ble->protocolPreference()));
     settings.setValue(QStringLiteral("protocol/mtu"), m_ble->mtuSize());
     settings.setValue(QStringLiteral("protocol/delayMs"), m_ble->writeDelayMs());
+    settings.setValue(QStringLiteral("notifications/osMirroringEnabled"), m_osBridge->isEnabled());
 
     QJsonObject root;
     root[QStringLiteral("appFilters")] = QJsonArray::fromVariantList(m_appFilters);

@@ -424,20 +424,39 @@ export class WebBleWatchSession {
       throw new Error('Watch is disconnected or 0xFEE2 write characteristic is unavailable.');
     }
 
-    for (let i = 0; i < chunks.length; i += 1) {
-      const chunk = chunks[i];
-      // Prefer write-with-response when supported: per spec, write success notification arrives AFTER responses.
-      if (this.dataOutChar.properties.write && this.dataOutChar.writeValueWithResponse) {
-        await this.dataOutChar.writeValueWithResponse(chunk);
-      } else if (this.dataOutChar.properties.write && this.dataOutChar.writeValue) {
-        await this.dataOutChar.writeValue(chunk);
-      } else if (this.dataOutChar.properties.writeWithoutResponse && this.dataOutChar.writeValueWithoutResponse) {
-        await this.dataOutChar.writeValueWithoutResponse(chunk);
-      } else if (this.dataOutChar.writeValue) {
-        await this.dataOutChar.writeValue(chunk);
+    const writeSingleChunk = async (data: Uint8Array): Promise<void> => {
+      if (!this.dataOutChar) {
+        throw new Error('0xFEE2 write characteristic is unavailable.');
       }
+      // Prefer write-with-response when supported: write success notification arrives AFTER watch responses.
+      if (this.dataOutChar.properties.write && this.dataOutChar.writeValueWithResponse) {
+        await this.dataOutChar.writeValueWithResponse(data);
+      } else if (this.dataOutChar.properties.write && this.dataOutChar.writeValue) {
+        await this.dataOutChar.writeValue(data);
+      } else if (this.dataOutChar.properties.writeWithoutResponse && this.dataOutChar.writeValueWithoutResponse) {
+        await this.dataOutChar.writeValueWithoutResponse(data);
+      } else if (this.dataOutChar.writeValue) {
+        await this.dataOutChar.writeValue(data);
+      }
+    };
+
+    const isV2 = (packet[2] & 0xf0) === 0x20;
+    // For V2 (MTU mode), try sending the entire frame in one ATT write first (modern Chrome/Android/BlueZ
+    // automatically negotiates MTU up to 247-512B). Fall back to chunking if the peripheral uses a 23B MTU.
+    if (isV2 && packet.length > mtuSize && packet.length <= 180) {
+      try {
+        await writeSingleChunk(packet);
+        return { chunks: 1 };
+      } catch {
+        // Fall back to mtuSize chunks below
+      }
+    }
+
+    const interChunkDelay = Math.min(writeDelayMs, 20);
+    for (let i = 0; i < chunks.length; i += 1) {
+      await writeSingleChunk(chunks[i]);
       if (i < chunks.length - 1) {
-        await new Promise((resolve) => setTimeout(resolve, writeDelayMs));
+        await new Promise((resolve) => setTimeout(resolve, interChunkDelay));
       }
     }
 

@@ -153,9 +153,9 @@ int FeeaCodec::maxPacketBytes(ProtocolVersion version, const QString &firmwareRe
 }
 
 int FeeaCodec::maxNotificationTextBytes(ProtocolVersion version, const QString &firmwareRevision) {
-    // Notification frame overhead = 5 (header + size + cmd) + 2 (icon + textLen) = 7 bytes
+    // Notification frame overhead = 5 (header + size + cmd) + 1 (iconId) = 6 bytes
     const int packetLimit = maxPacketBytes(version, firmwareRevision);
-    return std::clamp(packetLimit - 7, 16, 128);
+    return std::clamp(packetLimit - 6, 16, 128);
 }
 
 int FeeaCodec::expectedFrameLength(const QByteArray &chunk) {
@@ -289,11 +289,14 @@ QByteArray FeeaCodec::encodeNotification(ProtocolVersion version,
     }
 
     const QByteArray textBytes = truncateUtf8(formatted, std::clamp(maxUtf8Bytes, 16, 240));
+    // Clamp icon IDs above 0x0C to 0x0C (Other/Generic) so firmware with 0x00..0x0C icon tables accepts them.
+    const uint8_t rawIcon = static_cast<uint8_t>(icon);
+    const uint8_t wireIcon = (rawIcon <= 0x0C) ? rawIcon : 0x0C;
 
+    // 0xFEEA 0x64 notification payload: [iconId (1B)] [UTF-8 text bytes...] (total length is already in header bytes 2..3)
     QByteArray payload;
-    payload.reserve(2 + textBytes.size());
-    payload.append(static_cast<char>(static_cast<uint8_t>(icon)));
-    payload.append(static_cast<char>(textBytes.size() & 0xFF));
+    payload.reserve(1 + textBytes.size());
+    payload.append(static_cast<char>(wireIcon));
     payload.append(textBytes);
 
     return framePacket(version, CmdPushNotification, payload);

@@ -75,7 +75,7 @@ export function NotificationsView({
   onDeleteScheduledAlert,
   onFireScheduledAlertNow,
 }: NotificationsViewProps) {
-  const [subTab, setSubTab] = useState<SubTab>('mirror');
+  const [subTab, setSubTab] = useState<SubTab>('composer');
 
   // Manual Composer state
   const [iconId, setIconId] = useState<number>(0x06); // WhatsApp
@@ -131,9 +131,9 @@ export function NotificationsView({
         <div className="mx-auto flex max-w-5xl items-center gap-6 overflow-x-auto" role="tablist">
           {(
             [
-              { id: 'mirror', label: 'OS Mirroring' },
               { id: 'composer', label: 'Manual Composer' },
               { id: 'scheduled', label: 'Scheduled Alerts' },
+              { id: 'mirror', label: 'OS Mirroring' },
             ] as const
           ).map((tab) => {
             const active = subTab === tab.id;
@@ -169,9 +169,7 @@ export function NotificationsView({
                     System Notification Mirroring
                   </h3>
                   <p className="mt-0.5 text-xs text-[#64748B]">
-                    {osPlatformMode === 'linux'
-                      ? 'Linux D-Bus BecomeMonitor (org.freedesktop.Notifications.Notify)'
-                      : 'Android NotificationListenerService (JNI Bridge)'}
+                    Live OS notification capture runs in the native Android APK and Debian app. In the browser, use Test Forward below or Manual Composer to push real BLE notifications.
                   </p>
                 </div>
 
@@ -352,6 +350,15 @@ export function NotificationsView({
                   >
                     <Send className="h-4 w-4" />
                     <span>Send to Watch</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!isConnected}
+                    onClick={() => onSendManualNotification(0x01, 'FitLink', 'Test alert')}
+                    className="inline-flex h-10 items-center gap-2 rounded-xl border border-[#2563EB]/30 bg-[#EFF6FF] px-4 text-sm font-medium text-[#2563EB] transition-colors hover:bg-[#DBEAFE] disabled:cursor-not-allowed disabled:opacity-50 whitespace-nowrap"
+                  >
+                    <Bell className="h-4 w-4" />
+                    <span>Send Quick Test</span>
                   </button>
                   <button
                     type="button"

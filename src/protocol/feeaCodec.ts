@@ -112,9 +112,9 @@ export function maxPacketBytes(version: 'v1' | 'v2', firmwareRevision = ''): num
 }
 
 export function maxNotificationTextBytes(version: 'v1' | 'v2', firmwareRevision = ''): number {
-  // Notification frame overhead = 5 (header + size + cmd) + 2 (icon + textLen) = 7 bytes
+  // Notification frame overhead = 5 (header + size + cmd) + 1 (iconId) = 6 bytes
   const limit = maxPacketBytes(version, firmwareRevision);
-  return Math.max(16, Math.min(128, limit - 7));
+  return Math.max(16, Math.min(128, limit - 6));
 }
 
 export function getCommandForSet(setCommand: number): number {
@@ -263,7 +263,7 @@ export function getNotificationMetrics(
   const formatted = formatNotificationText(title, body);
   const fullBytes = textEncoder.encode(formatted).length;
   const capped = Math.min(128, fullBytes);
-  const frameSize = 7 + capped;
+  const frameSize = 6 + capped;
   const safeMtu = Math.max(20, mtuSize);
   return {
     utf8Bytes: fullBytes,
@@ -280,10 +280,14 @@ export function encodeNotification(
   maxUtf8Bytes = 128
 ): Uint8Array {
   const textBytes = truncateUtf8(formatNotificationText(title, body), Math.max(16, Math.min(240, maxUtf8Bytes)));
-  const payload = new Uint8Array(2 + textBytes.length);
-  payload[0] = iconId & 0xff;
-  payload[1] = textBytes.length & 0xff;
-  payload.set(textBytes, 2);
+  // Clamp icon IDs above 0x0C to 0x0C (Other/Generic) so watches with 0x00..0x0C icon tables accept them.
+  const rawIcon = iconId & 0xff;
+  const wireIcon = rawIcon <= 0x0c ? rawIcon : 0x0c;
+
+  // 0xFEEA 0x64 notification payload: [iconId (1B)] [UTF-8 text bytes...] (total length is already in header bytes 2..3)
+  const payload = new Uint8Array(1 + textBytes.length);
+  payload[0] = wireIcon;
+  payload.set(textBytes, 1);
   return framePacket(version, FEEA_CMD.PUSH_NOTIFICATION, payload);
 }
 
