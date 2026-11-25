@@ -49,13 +49,12 @@ export const FEEA_CMD = {
   GET_TIME_FORMAT: 0x37,
   SET_TIME: 0x31,
   GET_TIME: 0x41,
-  GET_ACTIVITY: 0x51,
-  GET_ACTIVITY_HIST: 0x52,
   FIND_WATCH: 0x61,
   PUSH_NOTIFICATION: 0x64,
-  MEASURE_SPO2: 0x6b,
-  MEASURE_DYNAMIC_HR: 0x6d,
-  MEASURE_HEART_RATE: 0x6f,
+  MEASURE_HEART_RATE: 0x69, // 0x69 start / 0x6A stop single HR
+  STOP_HEART_RATE: 0x6a,
+  MEASURE_SPO2: 0x6b, // 0x6B start / 0x6C stop SpO2
+  STOP_SPO2: 0x6c,
   WORKOUT: 0xb2, // sub-cmd: 0x00 list req, 0x01 list resp
   ADVANCED: 0xb9, // sub-commands follow get = set + 0x10
 } as const;
@@ -136,9 +135,8 @@ export function describeIncomingFrame(frame: Uint8Array): string {
   if (cmd === FEEA_CMD.GET_TIME) return `Time Response (${hexCmd})`;
   if (cmd === FEEA_CMD.GET_TIME_FORMAT) return `Time Format (${hexCmd})`;
   if (cmd === FEEA_CMD.GET_ALARMS) return `Alarms (${hexCmd})`;
-  if (cmd === FEEA_CMD.GET_ACTIVITY || cmd === FEEA_CMD.GET_ACTIVITY_HIST) return `Activity Response (${hexCmd})`;
-  if (cmd === FEEA_CMD.MEASURE_HEART_RATE || cmd === FEEA_CMD.MEASURE_DYNAMIC_HR) return `Heart Rate (${hexCmd})`;
-  if (cmd === FEEA_CMD.MEASURE_SPO2) return `SpO2 (${hexCmd})`;
+  if (cmd === FEEA_CMD.MEASURE_HEART_RATE || cmd === FEEA_CMD.STOP_HEART_RATE || cmd === 0x6d || cmd === 0x6f) return `Heart Rate (${hexCmd})`;
+  if (cmd === FEEA_CMD.MEASURE_SPO2 || cmd === FEEA_CMD.STOP_SPO2) return `SpO2 (${hexCmd})`;
   if (cmd === FEEA_CMD.WORKOUT && frame.length >= 6) {
     const sub = frame[5].toString(16).padStart(2, '0').toUpperCase();
     return `Workout (${hexCmd} ${sub})`;
@@ -279,18 +277,8 @@ export function encodeFindWatch(version: 'v1' | 'v2'): Uint8Array {
   return encodeGetCommand(version, FEEA_CMD.FIND_WATCH);
 }
 
-export function encodeGetActivity(version: 'v1' | 'v2'): Uint8Array {
-  // Empty-payload get request for today's activity summary (totalLen = 5: FE EA 10/20 05 51)
-  return encodeGetCommand(version, FEEA_CMD.GET_ACTIVITY);
-}
-
-export function encodeGetActivityHistory(version: 'v1' | 'v2', dayOffset: number): Uint8Array {
-  const safeOffset = Math.max(1, Math.min(6, Math.trunc(dayOffset)));
-  return framePacket(version, FEEA_CMD.GET_ACTIVITY_HIST, new Uint8Array([safeOffset & 0xff]));
-}
-
 export function encodeMeasureHeartRate(version: 'v1' | 'v2'): Uint8Array {
-  // Verified 0xFEEA single Heart Rate trigger: FE EA 10/20 06 6F 00
+  // Single Heart Rate trigger matching 0x6B SpO2 convention: FE EA 10/20 06 69 00
   return framePacket(version, FEEA_CMD.MEASURE_HEART_RATE, new Uint8Array([0x00]));
 }
 
@@ -329,11 +317,23 @@ function decodeStepsAndDistance(
     useBE = false;
   } else if (!beOk && !leOk) {
     return null;
-  } else if (buf.length >= offset + 6) {
-    const distBE = readUint24BE(buf, offset + 3);
-    const distLE = readUint24LE(buf, offset + 3);
-    if (distLE <= 250_000 && distBE > 250_000) {
-      useBE = false;
+  } else {
+    let decided = false;
+    if (buf.length >= offset + 6) {
+      const distBE = readUint24BE(buf, offset + 3);
+      const distLE = readUint24LE(buf, offset + 3);
+      const beDistOk = distBE >= 0 && distBE <= 250_000;
+      const leDistOk = distLE >= 0 && distLE <= 250_000;
+      if (leDistOk && !beDistOk) {
+        useBE = false;
+        decided = true;
+      } else if (beDistOk && !leDistOk) {
+        useBE = true;
+        decided = true;
+      }
+    }
+    if (!decided && stepsLE !== stepsBE) {
+      useBE = stepsBE < stepsLE;
     }
   }
 
@@ -398,7 +398,7 @@ export function parseFeeaHealthResponse(frame: Uint8Array): ParsedHealthPacket {
   const cmd = frame[4];
   const payload = frame.subarray(5);
 
-  if ((cmd === FEEA_CMD.GET_ACTIVITY || cmd === FEEA_CMD.GET_ACTIVITY_HIST || cmd === 0x09) && payload.length >= 3) {
+  if (cmd === 0x09 && payload.length >= 3) {
     let offset = 0;
     let dayOffset = 0;
     if (payload.length >= 7 && payload[0] <= 6) {
@@ -419,9 +419,9 @@ export function parseFeeaHealthResponse(frame: Uint8Array): ParsedHealthPacket {
 
   if (
     (cmd === FEEA_CMD.MEASURE_HEART_RATE ||
-      cmd === FEEA_CMD.MEASURE_DYNAMIC_HR ||
-      cmd === 0x6a ||
-      cmd === 0x69 ||
+      cmd === FEEA_CMD.STOP_HEART_RATE ||
+      cmd === 0x6d ||
+      cmd === 0x6f ||
       cmd === 0x0a) &&
     payload.length >= 1
   ) {
@@ -439,7 +439,7 @@ export function parseFeeaHealthResponse(frame: Uint8Array): ParsedHealthPacket {
 
   if (
     (cmd === FEEA_CMD.MEASURE_SPO2 ||
-      cmd === 0x6c ||
+      cmd === FEEA_CMD.STOP_SPO2 ||
       cmd === 0x72 ||
       cmd === 0x73 ||
       cmd === 0x80 ||

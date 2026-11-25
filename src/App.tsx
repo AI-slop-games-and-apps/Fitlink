@@ -9,8 +9,6 @@ import { TimeSyncView } from './components/TimeSyncView';
 import {
   bytesToHex,
   encodeFindWatch,
-  encodeGetActivity,
-  encodeGetActivityHistory,
   encodeMeasureHeartRate,
   encodeMeasureSpo2,
   encodeNotification,
@@ -509,47 +507,27 @@ export default function App() {
   );
 
   const handleRefreshActivity = useCallback(
-    async (protoOverride?: 'v1' | 'v2', silent = false) => {
-      const resolved =
-        protoOverride ??
-        resolveProtocolVersion(watch.detectedProtocol, watch.protocolPreference);
+    async (_protoOverride?: 'v1' | 'v2', silent = false) => {
       setIsSyncingActivity(true);
       try {
-        await sessionRef.current!.readActivity();
-        // Query today with empty-payload get request (0x51, size=5) and earlier days via 0x52
-        const okToday = await transmitPacket(
-          'Get Today Activity (0x51)',
-          encodeGetActivity(resolved),
-          resolved
-        );
-        if (!okToday) {
-          return;
-        }
-        const today = new Date();
-        const daysSinceMonday = (today.getDay() + 6) % 7;
-        for (let offset = 1; offset <= daysSinceMonday; offset += 1) {
-          const ok = await transmitPacket(
-            `Get Activity -${offset}d (0x52)`,
-            encodeGetActivityHistory(resolved, offset),
-            resolved
-          );
-          if (!ok) {
-            return;
+        // Safely read steps & distance directly from 0xFEE1 (no 0xFEE2 system writes)
+        const ok = await sessionRef.current!.readActivity();
+        if (ok) {
+          setActivityState((prev) => ({
+            ...prev,
+            lastActivitySyncedAt: formatShortTime(),
+          }));
+          if (!silent) {
+            showToast('Steps and distance refreshed from watch');
           }
-        }
-
-        setActivityState((prev) => ({
-          ...prev,
-          lastActivitySyncedAt: formatShortTime(),
-        }));
-        if (!silent) {
-          showToast('Activity refreshed from watch');
+        } else if (!silent) {
+          showToast('Watch does not expose a readable 0xFEE1 steps characteristic', true);
         }
       } finally {
         setIsSyncingActivity(false);
       }
     },
-    [showToast, transmitPacket, watch.detectedProtocol, watch.protocolPreference]
+    [showToast]
   );
 
   const handleMeasureHeartRate = useCallback(async () => {
@@ -566,7 +544,7 @@ export default function App() {
       setIsMeasuringHeartRate(false);
       hrTimerRef.current = null;
     }, 30_000);
-    const ok = await transmitPacket('Measure Heart Rate (0x6F)', encodeMeasureHeartRate(resolved), resolved);
+    const ok = await transmitPacket('Measure Heart Rate (0x69)', encodeMeasureHeartRate(resolved), resolved);
     if (ok) {
       showToast('Heart rate reading started on watch');
     } else {

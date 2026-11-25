@@ -1063,25 +1063,19 @@ void BleWatchManager::refreshBattery() {
 }
 
 bool BleWatchManager::requestHealthSync() {
-    if (m_state != ConnectionState::Connected || !m_feeaService || !m_dataOutChar.isValid()) {
-        emit errorOccurred(tr("Connect a watch before refreshing activity data."));
+    if (m_state != ConnectionState::Connected || !m_feeaService) {
+        emit errorOccurred(tr("Connect a watch before refreshing steps and distance."));
         return false;
     }
 
-    // 1. Read live telemetry characteristics directly if exposed by the watch
+    // Safely read steps & distance directly from 0xFEE1 (no 0xFEE2 system writes)
     if (m_activityChar.isValid() && (m_activityChar.properties() & QLowEnergyCharacteristic::Read)) {
-        enqueueReadChar(m_feeaService, m_activityChar, tr("Read Activity (0xFEE1)"));
-    }
-    if (m_batteryService && m_batteryChar.isValid()) {
-        enqueueReadChar(m_batteryService, m_batteryChar, tr("Read Battery"));
+        enqueueReadChar(m_feeaService, m_activityChar, tr("Read Steps & Distance (0xFEE1)"));
+        return true;
     }
 
-    // 2. Query today's activity with an empty-payload get request (0x51, size=5) and recent history (0x52)
-    const auto version = FeeaCodec::resolveVersion(m_detectedProtocol, m_protocolPref);
-    const bool okSteps = enqueuePacket(FeeaCodec::encodeGetActivity(version), tr("Get Activity Today (0x51)"));
-    enqueuePacket(FeeaCodec::encodeGetActivityHistory(version, 1), tr("Get Activity Yesterday (0x52)"));
-    enqueuePacket(FeeaCodec::encodeGetActivityHistory(version, 2), tr("Get Activity -2d (0x52)"));
-    return okSteps;
+    emit errorOccurred(tr("Watch does not expose a readable 0xFEE1 steps characteristic."));
+    return false;
 }
 
 bool BleWatchManager::requestHeartRateReading() {
@@ -1090,7 +1084,7 @@ bool BleWatchManager::requestHeartRateReading() {
         return false;
     }
     const auto version = FeeaCodec::resolveVersion(m_detectedProtocol, m_protocolPref);
-    return enqueuePacket(FeeaCodec::encodeMeasureHeartRate(version), tr("Measure Heart Rate (0x6F)"));
+    return enqueuePacket(FeeaCodec::encodeMeasureHeartRate(version), tr("Measure Heart Rate (0x69)"));
 }
 
 bool BleWatchManager::requestSpo2Reading() {

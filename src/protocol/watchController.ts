@@ -364,13 +364,6 @@ export class WebBleWatchSession {
       const cmd = packet[4] ?? 0x00;
       const version: 'v1' | 'v2' = (packet[2] & 0xf0) === 0x10 ? 'v1' : 'v2';
 
-      if (cmd === FEEA_CMD.GET_ACTIVITY || cmd === FEEA_CMD.GET_ACTIVITY_HIST) {
-        const dayOffset = cmd === FEEA_CMD.GET_ACTIVITY_HIST ? (packet[5] ?? 1) : 0;
-        const responseFrame = this.buildVirtualActivityFrame(version, dayOffset, cmd);
-        this.dispatchParsedHealth(parseFeeaHealthResponse(responseFrame));
-        return { chunks: chunks.length, ackHex: bytesToHex(responseFrame) };
-      }
-
       if (cmd === FEEA_CMD.MEASURE_HEART_RATE) {
         await new Promise((resolve) => setTimeout(resolve, 750));
         this.virtualSyncCount += 1;
@@ -438,15 +431,37 @@ export class WebBleWatchSession {
     return dv.getUint8(0);
   }
 
-  async readActivity(): Promise<void> {
-    if (this.virtual || !this.activityChar || !this.activityChar.properties.read) return;
+  async readActivity(): Promise<boolean> {
+    if (this.virtual) {
+      await new Promise((resolve) => setTimeout(resolve, 180));
+      this.virtualSyncCount += 1;
+      const bump = this.virtualSyncCount * 145;
+      const steps = 7840 + bump;
+      const meters = 5820 + Math.round(bump * 0.74);
+      const raw = new Uint8Array([
+        steps & 0xff,
+        (steps >> 8) & 0xff,
+        (steps >> 16) & 0xff,
+        meters & 0xff,
+        (meters >> 8) & 0xff,
+        (meters >> 16) & 0xff,
+        0x2c,
+        0x01,
+        0x00,
+      ]);
+      this.onDataReceived?.(bytesToHex(raw), 'Activity Telemetry (0xFEE1)');
+      this.dispatchParsedHealth(parseFee1Activity(raw));
+      return true;
+    }
+    if (!this.activityChar || !this.activityChar.properties.read) return false;
     try {
       const dv = await this.activityChar.readValue();
       const bytes = new Uint8Array(dv.buffer, dv.byteOffset, dv.byteLength);
-      this.onDataReceived?.(bytesToHex(bytes));
+      this.onDataReceived?.(bytesToHex(bytes), 'Activity Telemetry (0xFEE1)');
       this.dispatchParsedHealth(parseFee1Activity(bytes));
+      return true;
     } catch {
-      // Non-fatal
+      return false;
     }
   }
 
@@ -501,31 +516,6 @@ export class WebBleWatchSession {
     } else if (parsed.type === 'battery' && parsed.batteryPercent >= 0) {
       this.onBatteryChanged?.(parsed.batteryPercent);
     }
-  }
-
-  private buildVirtualActivityFrame(
-    version: 'v1' | 'v2',
-    dayOffset: number,
-    cmd: number = FEEA_CMD.GET_ACTIVITY
-  ): Uint8Array {
-    // Realistic 7-day walking profile in steps + meters; today increments slightly per refresh
-    const baseSteps = [7840, 6210, 8950, 5120, 7430, 9380, 4680];
-    const baseMeters = [5820, 4610, 6680, 3810, 5510, 6990, 3480];
-    const idx = Math.max(0, Math.min(6, dayOffset));
-    const bump = idx === 0 ? this.virtualSyncCount * 145 : 0;
-    const steps = baseSteps[idx] + bump;
-    const meters = baseMeters[idx] + Math.round(bump * 0.74);
-
-    const payload = new Uint8Array([
-      idx & 0xff,
-      (steps >> 16) & 0xff,
-      (steps >> 8) & 0xff,
-      steps & 0xff,
-      (meters >> 16) & 0xff,
-      (meters >> 8) & 0xff,
-      meters & 0xff,
-    ]);
-    return framePacket(version, cmd, payload);
   }
 
   private cleanupHandles(): void {

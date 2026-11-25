@@ -39,13 +39,23 @@ bool decodeStepsAndDistance(const QByteArray &buf, int offset, int &stepsOut, in
         useBE = false;
     } else if (!beStepsOk && !leStepsOk) {
         return false;
-    } else if (buf.size() >= offset + 6) {
-        const int distBE = readUint24BE(buf, offset + 3);
-        const int distLE = readUint24LE(buf, offset + 3);
-        const bool beDistOk = (distBE >= 0 && distBE <= 250000);
-        const bool leDistOk = (distLE >= 0 && distLE <= 250000);
-        if (leDistOk && !beDistOk) {
-            useBE = false;
+    } else {
+        bool decided = false;
+        if (buf.size() >= offset + 6) {
+            const int distBE = readUint24BE(buf, offset + 3);
+            const int distLE = readUint24LE(buf, offset + 3);
+            const bool beDistOk = (distBE >= 0 && distBE <= 250000);
+            const bool leDistOk = (distLE >= 0 && distLE <= 250000);
+            if (leDistOk && !beDistOk) {
+                useBE = false;
+                decided = true;
+            } else if (beDistOk && !leDistOk) {
+                useBE = true;
+                decided = true;
+            }
+        }
+        if (!decided && stepsLE != stepsBE) {
+            useBE = (stepsBE < stepsLE);
         }
     }
 
@@ -177,9 +187,8 @@ QString FeeaCodec::describeIncomingFrame(const QByteArray &frame) {
     if (cmd == CmdGetTime) return QStringLiteral("Time Response (%1)").arg(hexCmd);
     if (cmd == CmdGetTimeFormat) return QStringLiteral("Time Format (%1)").arg(hexCmd);
     if (cmd == CmdGetAlarms) return QStringLiteral("Alarms (%1)").arg(hexCmd);
-    if (cmd == CmdGetActivity || cmd == CmdGetActivityHist) return QStringLiteral("Activity Response (%1)").arg(hexCmd);
-    if (cmd == CmdMeasureHeartRate || cmd == CmdMeasureDynamicHr) return QStringLiteral("Heart Rate (%1)").arg(hexCmd);
-    if (cmd == CmdMeasureSpo2) return QStringLiteral("SpO2 (%1)").arg(hexCmd);
+    if (cmd == CmdMeasureHeartRate || cmd == CmdStopHeartRate || cmd == 0x6F || cmd == 0x6D) return QStringLiteral("Heart Rate (%1)").arg(hexCmd);
+    if (cmd == CmdMeasureSpo2 || cmd == CmdStopSpo2) return QStringLiteral("SpO2 (%1)").arg(hexCmd);
     if (cmd == CmdWorkout && frame.size() >= 6) {
         const uint8_t sub = static_cast<uint8_t>(frame.at(5));
         return QStringLiteral("Workout (%1 %2)").arg(hexCmd, QStringLiteral("%1").arg(sub, 2, 16, QLatin1Char('0')).toUpper());
@@ -293,19 +302,8 @@ QByteArray FeeaCodec::encodeFindWatch(ProtocolVersion version) {
     return encodeGetCommand(version, CmdFindWatch);
 }
 
-QByteArray FeeaCodec::encodeGetActivity(ProtocolVersion version) {
-    // Empty-payload get request for today's activity summary (totalLen = 5: FE EA 10/20 05 51)
-    return encodeGetCommand(version, CmdGetActivity);
-}
-
-QByteArray FeeaCodec::encodeGetActivityHistory(ProtocolVersion version, uint8_t dayOffset) {
-    QByteArray payload;
-    payload.append(static_cast<char>(std::clamp<uint8_t>(dayOffset, 1, 6)));
-    return framePacket(version, CmdGetActivityHist, payload);
-}
-
 QByteArray FeeaCodec::encodeMeasureHeartRate(ProtocolVersion version) {
-    // Verified 0xFEEA single Heart Rate trigger: FE EA 10/20 06 6F 00
+    // Single Heart Rate trigger matching 0x6B SpO2 convention: FE EA 10/20 06 69 00
     QByteArray payload;
     payload.append(static_cast<char>(0x00));
     return framePacket(version, CmdMeasureHeartRate, payload);
@@ -395,7 +393,7 @@ ParsedHealthPacket FeeaCodec::parseFeeaHealthResponse(const QByteArray &frame) {
     const uint8_t cmd = static_cast<uint8_t>(frame.at(4));
     const QByteArray payload = frame.mid(5);
 
-    if ((cmd == CmdGetActivity || cmd == CmdGetActivityHist || cmd == 0x09) && payload.size() >= 3) {
+    if (cmd == 0x09 && payload.size() >= 3) {
         int offset = 0;
         if (payload.size() >= 7 && static_cast<uint8_t>(payload.at(0)) <= 6) {
             out.dayOffset = static_cast<uint8_t>(payload.at(0));
@@ -413,7 +411,7 @@ ParsedHealthPacket FeeaCodec::parseFeeaHealthResponse(const QByteArray &frame) {
         }
     }
 
-    if ((cmd == CmdMeasureHeartRate || cmd == CmdMeasureDynamicHr || cmd == 0x6A || cmd == 0x69 || cmd == 0x0A)
+    if ((cmd == CmdMeasureHeartRate || cmd == CmdStopHeartRate || cmd == 0x6D || cmd == 0x6F || cmd == 0x0A)
         && !payload.isEmpty()) {
         for (int i = payload.size() - 1; i >= 0; --i) {
             const int candidate = static_cast<uint8_t>(payload.at(i));
@@ -426,7 +424,7 @@ ParsedHealthPacket FeeaCodec::parseFeeaHealthResponse(const QByteArray &frame) {
         }
     }
 
-    if ((cmd == CmdMeasureSpo2 || cmd == 0x6C || cmd == 0x72 || cmd == 0x73 || cmd == 0x80 || cmd == 0x82 || cmd == 0x0B)
+    if ((cmd == CmdMeasureSpo2 || cmd == CmdStopSpo2 || cmd == 0x72 || cmd == 0x73 || cmd == 0x80 || cmd == 0x82 || cmd == 0x0B)
         && !payload.isEmpty()) {
         for (int i = payload.size() - 1; i >= 0; --i) {
             const int candidate = static_cast<uint8_t>(payload.at(i));
