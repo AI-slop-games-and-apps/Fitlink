@@ -203,7 +203,7 @@ jobs:
           ALIGNED_APK="${{ runner.temp }}/fitlink-android-${{ matrix.abi }}-aligned.apk"
           SIGNED_APK="qt/dist-${{ matrix.abi }}/fitlink-android-${{ matrix.abi }}.apk"
 
-          "${BUILD_TOOLS_DIR}/zipalign" -P 16 -f -p 4 "${RAW_APK}" "${ALIGNED_APK}"
+          "${BUILD_TOOLS_DIR}/zipalign" -P 16 -f 4 "${RAW_APK}" "${ALIGNED_APK}"
           "${BUILD_TOOLS_DIR}/apksigner" sign \
             --ks "${KEYSTORE_PATH}" \
             --ks-pass "pass:${KS_PASS}" \
