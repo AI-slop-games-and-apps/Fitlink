@@ -302,7 +302,7 @@ QByteArray FeeaCodec::encodeNotification(ProtocolVersion version,
     if (format == NotificationFormat::SplitTitle) {
         const QString effectiveTitle = trimmedTitle.isEmpty() ? QStringLiteral("Alert") : trimmedTitle;
         const QByteArray titleBytes = truncateUtf8(effectiveTitle, std::min(48, clampedMax - 4));
-        const int remaining = std::max(0, clampedMax - titleBytes.size() - 2);
+        const int remaining = std::max(0, clampedMax - static_cast<int>(titleBytes.size()) - 2);
         const QByteArray bodyBytes = trimmedBody.isEmpty() ? QByteArray() : truncateUtf8(trimmedBody, remaining);
         QByteArray payload;
         payload.reserve(1 + titleBytes.size() + 1 + bodyBytes.size() + 1);

@@ -1,0 +1,447 @@
+9s
+Run chmod +x qt/scripts/build-android.sh
+Using ANDROID_SDK_ROOT=/usr/local/lib/android/sdk
+Using ANDROID_NDK_ROOT=/usr/local/lib/android/sdk/ndk/27.2.12479018
+Using NINJA_BIN=/usr/local/bin/ninja
+Using QT_HOST_DIR=/home/runner/work/_temp/qt-host/Qt/6.9.3/gcc_64
+Using QT_ANDROID_CMAKE=/home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/bin/qt-cmake
+-- Android toolchain file within NDK detected: /usr/local/lib/android/sdk/ndk/27.2.12479018/build/cmake/android.toolchain.cmake
+CMake Warning (deprecated) at /usr/local/lib/android/sdk/ndk/27.2.12479018/build/cmake/android.toolchain.cmake:35 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+Call Stack (most recent call first):
+  /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/lib/cmake/Qt6/qt.toolchain.cmake:135 (include)
+  /usr/local/share/cmake-4.5/Modules/CMakeDetermineSystem.cmake:154 (include)
+  CMakeLists.txt:3 (project)
+This warning is for project developers.  Use -Wno-author or -Wno-deprecated
+to suppress it.
+
+CMake Warning (deprecated) at /usr/local/lib/android/sdk/ndk/27.2.12479018/build/cmake/android-legacy.toolchain.cmake:35 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+Call Stack (most recent call first):
+  /usr/local/lib/android/sdk/ndk/27.2.12479018/build/cmake/android.toolchain.cmake:55 (include)
+  /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/lib/cmake/Qt6/qt.toolchain.cmake:135 (include)
+  /usr/local/share/cmake-4.5/Modules/CMakeDetermineSystem.cmake:154 (include)
+  CMakeLists.txt:3 (project)
+This warning is for project developers.  Use -Wno-author or -Wno-deprecated
+to suppress it.
+
+-- Android toolchain file within NDK detected: /usr/local/lib/android/sdk/ndk/27.2.12479018/build/cmake/android.toolchain.cmake
+CMake Warning (deprecated) at /usr/local/lib/android/sdk/ndk/27.2.12479018/build/cmake/android.toolchain.cmake:35 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+Call Stack (most recent call first):
+  /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/lib/cmake/Qt6/qt.toolchain.cmake:135 (include)
+  build-android-arm64-v8a/CMakeFiles/4.5.0/CMakeSystem.cmake:8 (include)
+  CMakeLists.txt:3 (project)
+This warning is for project developers.  Use -Wno-author or -Wno-deprecated
+to suppress it.
+
+-- The CXX compiler identification is Clang 18.0.3
+CMake Warning (deprecated) at /usr/local/lib/android/sdk/ndk/27.2.12479018/build/cmake/flags.cmake:18 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+Call Stack (most recent call first):
+  /usr/local/share/cmake-4.5/Modules/Platform/Android-Clang.cmake:23 (include)
+  /usr/local/share/cmake-4.5/Modules/Platform/Android-Clang-CXX.cmake:1 (include)
+  /usr/local/share/cmake-4.5/Modules/CMakeCXXInformation.cmake:48 (include)
+  CMakeLists.txt:3 (project)
+This warning is for project developers.  Use -Wno-author or -Wno-deprecated
+to suppress it.
+
+-- Detecting CXX compiler ABI info
+CMake Warning (deprecated) at /usr/local/lib/android/sdk/ndk/27.2.12479018/build/cmake/android.toolchain.cmake:35 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+Call Stack (most recent call first):
+  /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/lib/cmake/Qt6/qt.toolchain.cmake:135 (include)
+  /home/runner/work/Fitlink/Fitlink/qt/build-android-arm64-v8a/CMakeFiles/4.5.0/CMakeSystem.cmake:8 (include)
+  /home/runner/work/Fitlink/Fitlink/qt/build-android-arm64-v8a/CMakeFiles/CMakeScratch/TryCompile-BMv3YS/CMakeLists.txt:6 (project)
+This warning is for project developers.  Use -Wno-author or -Wno-deprecated
+to suppress it.
+
+CMake Warning (deprecated) at /usr/local/lib/android/sdk/ndk/27.2.12479018/build/cmake/android-legacy.toolchain.cmake:35 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+Call Stack (most recent call first):
+  /usr/local/lib/android/sdk/ndk/27.2.12479018/build/cmake/android.toolchain.cmake:55 (include)
+  /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/lib/cmake/Qt6/qt.toolchain.cmake:135 (include)
+  /home/runner/work/Fitlink/Fitlink/qt/build-android-arm64-v8a/CMakeFiles/4.5.0/CMakeSystem.cmake:8 (include)
+  /home/runner/work/Fitlink/Fitlink/qt/build-android-arm64-v8a/CMakeFiles/CMakeScratch/TryCompile-BMv3YS/CMakeLists.txt:6 (project)
+This warning is for project developers.  Use -Wno-author or -Wno-deprecated
+to suppress it.
+
+CMake Warning (deprecated) at /usr/local/lib/android/sdk/ndk/27.2.12479018/build/cmake/flags.cmake:18 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+Call Stack (most recent call first):
+  /usr/local/share/cmake-4.5/Modules/Platform/Android-Clang.cmake:23 (include)
+  /usr/local/share/cmake-4.5/Modules/Platform/Android-Clang-CXX.cmake:1 (include)
+  /usr/local/share/cmake-4.5/Modules/CMakeCXXInformation.cmake:48 (include)
+  /home/runner/work/Fitlink/Fitlink/qt/build-android-arm64-v8a/CMakeFiles/CMakeScratch/TryCompile-BMv3YS/CMakeLists.txt:6 (project)
+This warning is for project developers.  Use -Wno-author or -Wno-deprecated
+to suppress it.
+
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/local/lib/android/sdk/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+CMake Warning (deprecated) at /usr/local/lib/android/sdk/ndk/27.2.12479018/build/cmake/android.toolchain.cmake:35 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+Call Stack (most recent call first):
+  /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/lib/cmake/Qt6/qt.toolchain.cmake:135 (include)
+  /home/runner/work/Fitlink/Fitlink/qt/build-android-arm64-v8a/CMakeFiles/4.5.0/CMakeSystem.cmake:8 (include)
+  /home/runner/work/Fitlink/Fitlink/qt/build-android-arm64-v8a/CMakeFiles/CMakeScratch/TryCompile-ZsUyyW/CMakeLists.txt:6 (project)
+This warning is for project developers.  Use -Wno-author or -Wno-deprecated
+to suppress it.
+
+CMake Warning (deprecated) at /usr/local/lib/android/sdk/ndk/27.2.12479018/build/cmake/android-legacy.toolchain.cmake:35 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+Call Stack (most recent call first):
+  /usr/local/lib/android/sdk/ndk/27.2.12479018/build/cmake/android.toolchain.cmake:55 (include)
+  /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/lib/cmake/Qt6/qt.toolchain.cmake:135 (include)
+  /home/runner/work/Fitlink/Fitlink/qt/build-android-arm64-v8a/CMakeFiles/4.5.0/CMakeSystem.cmake:8 (include)
+  /home/runner/work/Fitlink/Fitlink/qt/build-android-arm64-v8a/CMakeFiles/CMakeScratch/TryCompile-ZsUyyW/CMakeLists.txt:6 (project)
+This warning is for project developers.  Use -Wno-author or -Wno-deprecated
+to suppress it.
+
+CMake Warning (deprecated) at /usr/local/lib/android/sdk/ndk/27.2.12479018/build/cmake/flags.cmake:18 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+Call Stack (most recent call first):
+  /usr/local/share/cmake-4.5/Modules/Platform/Android-Clang.cmake:23 (include)
+  /usr/local/share/cmake-4.5/Modules/Platform/Android-Clang-CXX.cmake:1 (include)
+  /usr/local/share/cmake-4.5/Modules/CMakeCXXInformation.cmake:48 (include)
+  /home/runner/work/Fitlink/Fitlink/qt/build-android-arm64-v8a/CMakeFiles/CMakeScratch/TryCompile-ZsUyyW/CMakeLists.txt:6 (project)
+This warning is for project developers.  Use -Wno-author or -Wno-deprecated
+to suppress it.
+
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Failed
+-- Check if compiler accepts -pthread
+CMake Warning (deprecated) at /usr/local/lib/android/sdk/ndk/27.2.12479018/build/cmake/android.toolchain.cmake:35 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+Call Stack (most recent call first):
+  /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/lib/cmake/Qt6/qt.toolchain.cmake:135 (include)
+  /home/runner/work/Fitlink/Fitlink/qt/build-android-arm64-v8a/CMakeFiles/4.5.0/CMakeSystem.cmake:8 (include)
+  /home/runner/work/Fitlink/Fitlink/qt/build-android-arm64-v8a/CMakeFiles/CMakeScratch/TryCompile-fl7Gz4/CMakeLists.txt:6 (project)
+This warning is for project developers.  Use -Wno-author or -Wno-deprecated
+to suppress it.
+
+CMake Warning (deprecated) at /usr/local/lib/android/sdk/ndk/27.2.12479018/build/cmake/android-legacy.toolchain.cmake:35 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+Call Stack (most recent call first):
+  /usr/local/lib/android/sdk/ndk/27.2.12479018/build/cmake/android.toolchain.cmake:55 (include)
+  /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/lib/cmake/Qt6/qt.toolchain.cmake:135 (include)
+  /home/runner/work/Fitlink/Fitlink/qt/build-android-arm64-v8a/CMakeFiles/4.5.0/CMakeSystem.cmake:8 (include)
+  /home/runner/work/Fitlink/Fitlink/qt/build-android-arm64-v8a/CMakeFiles/CMakeScratch/TryCompile-fl7Gz4/CMakeLists.txt:6 (project)
+This warning is for project developers.  Use -Wno-author or -Wno-deprecated
+to suppress it.
+
+CMake Warning (deprecated) at /usr/local/lib/android/sdk/ndk/27.2.12479018/build/cmake/flags.cmake:18 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+Call Stack (most recent call first):
+  /usr/local/share/cmake-4.5/Modules/Platform/Android-Clang.cmake:23 (include)
+  /usr/local/share/cmake-4.5/Modules/Platform/Android-Clang-CXX.cmake:1 (include)
+  /usr/local/share/cmake-4.5/Modules/CMakeCXXInformation.cmake:48 (include)
+  /home/runner/work/Fitlink/Fitlink/qt/build-android-arm64-v8a/CMakeFiles/CMakeScratch/TryCompile-fl7Gz4/CMakeLists.txt:6 (project)
+This warning is for project developers.  Use -Wno-author or -Wno-deprecated
+to suppress it.
+
+-- Check if compiler accepts -pthread - yes
+-- Found Threads: TRUE
+-- Performing Test HAVE_STDATOMIC
+CMake Warning (deprecated) at /usr/local/lib/android/sdk/ndk/27.2.12479018/build/cmake/android.toolchain.cmake:35 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+Call Stack (most recent call first):
+  /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/lib/cmake/Qt6/qt.toolchain.cmake:135 (include)
+  /home/runner/work/Fitlink/Fitlink/qt/build-android-arm64-v8a/CMakeFiles/4.5.0/CMakeSystem.cmake:8 (include)
+  /home/runner/work/Fitlink/Fitlink/qt/build-android-arm64-v8a/CMakeFiles/CMakeScratch/TryCompile-lvdxz9/CMakeLists.txt:6 (project)
+This warning is for project developers.  Use -Wno-author or -Wno-deprecated
+to suppress it.
+
+CMake Warning (deprecated) at /usr/local/lib/android/sdk/ndk/27.2.12479018/build/cmake/android-legacy.toolchain.cmake:35 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+Call Stack (most recent call first):
+  /usr/local/lib/android/sdk/ndk/27.2.12479018/build/cmake/android.toolchain.cmake:55 (include)
+  /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/lib/cmake/Qt6/qt.toolchain.cmake:135 (include)
+  /home/runner/work/Fitlink/Fitlink/qt/build-android-arm64-v8a/CMakeFiles/4.5.0/CMakeSystem.cmake:8 (include)
+  /home/runner/work/Fitlink/Fitlink/qt/build-android-arm64-v8a/CMakeFiles/CMakeScratch/TryCompile-lvdxz9/CMakeLists.txt:6 (project)
+This warning is for project developers.  Use -Wno-author or -Wno-deprecated
+to suppress it.
+
+CMake Warning (deprecated) at /usr/local/lib/android/sdk/ndk/27.2.12479018/build/cmake/flags.cmake:18 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+Call Stack (most recent call first):
+  /usr/local/share/cmake-4.5/Modules/Platform/Android-Clang.cmake:23 (include)
+  /usr/local/share/cmake-4.5/Modules/Platform/Android-Clang-CXX.cmake:1 (include)
+  /usr/local/share/cmake-4.5/Modules/CMakeCXXInformation.cmake:48 (include)
+  /home/runner/work/Fitlink/Fitlink/qt/build-android-arm64-v8a/CMakeFiles/CMakeScratch/TryCompile-lvdxz9/CMakeLists.txt:6 (project)
+This warning is for project developers.  Use -Wno-author or -Wno-deprecated
+to suppress it.
+
+-- Performing Test HAVE_STDATOMIC - Success
+-- Found WrapAtomic: TRUE
+-- Performing Test HAVE_EGL
+CMake Warning (deprecated) at /usr/local/lib/android/sdk/ndk/27.2.12479018/build/cmake/android.toolchain.cmake:35 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+Call Stack (most recent call first):
+  /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/lib/cmake/Qt6/qt.toolchain.cmake:135 (include)
+  /home/runner/work/Fitlink/Fitlink/qt/build-android-arm64-v8a/CMakeFiles/4.5.0/CMakeSystem.cmake:8 (include)
+  /home/runner/work/Fitlink/Fitlink/qt/build-android-arm64-v8a/CMakeFiles/CMakeScratch/TryCompile-P8shww/CMakeLists.txt:6 (project)
+This warning is for project developers.  Use -Wno-author or -Wno-deprecated
+to suppress it.
+
+CMake Warning (deprecated) at /usr/local/lib/android/sdk/ndk/27.2.12479018/build/cmake/android-legacy.toolchain.cmake:35 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+Call Stack (most recent call first):
+  /usr/local/lib/android/sdk/ndk/27.2.12479018/build/cmake/android.toolchain.cmake:55 (include)
+  /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/lib/cmake/Qt6/qt.toolchain.cmake:135 (include)
+  /home/runner/work/Fitlink/Fitlink/qt/build-android-arm64-v8a/CMakeFiles/4.5.0/CMakeSystem.cmake:8 (include)
+  /home/runner/work/Fitlink/Fitlink/qt/build-android-arm64-v8a/CMakeFiles/CMakeScratch/TryCompile-P8shww/CMakeLists.txt:6 (project)
+This warning is for project developers.  Use -Wno-author or -Wno-deprecated
+to suppress it.
+
+CMake Warning (deprecated) at /usr/local/lib/android/sdk/ndk/27.2.12479018/build/cmake/flags.cmake:18 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+Call Stack (most recent call first):
+  /usr/local/share/cmake-4.5/Modules/Platform/Android-Clang.cmake:23 (include)
+  /usr/local/share/cmake-4.5/Modules/Platform/Android-Clang-CXX.cmake:1 (include)
+  /usr/local/share/cmake-4.5/Modules/CMakeCXXInformation.cmake:48 (include)
+  /home/runner/work/Fitlink/Fitlink/qt/build-android-arm64-v8a/CMakeFiles/CMakeScratch/TryCompile-P8shww/CMakeLists.txt:6 (project)
+This warning is for project developers.  Use -Wno-author or -Wno-deprecated
+to suppress it.
+
+-- Performing Test HAVE_EGL - Success
+-- Found EGL: /usr/local/lib/android/sdk/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include (found version "1.5")
+-- Performing Test HAVE_GLESv2
+CMake Warning (deprecated) at /usr/local/lib/android/sdk/ndk/27.2.12479018/build/cmake/android.toolchain.cmake:35 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+Call Stack (most recent call first):
+  /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/lib/cmake/Qt6/qt.toolchain.cmake:135 (include)
+  /home/runner/work/Fitlink/Fitlink/qt/build-android-arm64-v8a/CMakeFiles/4.5.0/CMakeSystem.cmake:8 (include)
+  /home/runner/work/Fitlink/Fitlink/qt/build-android-arm64-v8a/CMakeFiles/CMakeScratch/TryCompile-KV5XQU/CMakeLists.txt:6 (project)
+This warning is for project developers.  Use -Wno-author or -Wno-deprecated
+to suppress it.
+
+CMake Warning (deprecated) at /usr/local/lib/android/sdk/ndk/27.2.12479018/build/cmake/android-legacy.toolchain.cmake:35 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+Call Stack (most recent call first):
+  /usr/local/lib/android/sdk/ndk/27.2.12479018/build/cmake/android.toolchain.cmake:55 (include)
+  /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/lib/cmake/Qt6/qt.toolchain.cmake:135 (include)
+  /home/runner/work/Fitlink/Fitlink/qt/build-android-arm64-v8a/CMakeFiles/4.5.0/CMakeSystem.cmake:8 (include)
+  /home/runner/work/Fitlink/Fitlink/qt/build-android-arm64-v8a/CMakeFiles/CMakeScratch/TryCompile-KV5XQU/CMakeLists.txt:6 (project)
+This warning is for project developers.  Use -Wno-author or -Wno-deprecated
+to suppress it.
+
+CMake Warning (deprecated) at /usr/local/lib/android/sdk/ndk/27.2.12479018/build/cmake/flags.cmake:18 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+Call Stack (most recent call first):
+  /usr/local/share/cmake-4.5/Modules/Platform/Android-Clang.cmake:23 (include)
+  /usr/local/share/cmake-4.5/Modules/Platform/Android-Clang-CXX.cmake:1 (include)
+  /usr/local/share/cmake-4.5/Modules/CMakeCXXInformation.cmake:48 (include)
+  /home/runner/work/Fitlink/Fitlink/qt/build-android-arm64-v8a/CMakeFiles/CMakeScratch/TryCompile-KV5XQU/CMakeLists.txt:6 (project)
+This warning is for project developers.  Use -Wno-author or -Wno-deprecated
+to suppress it.
+
+-- Performing Test HAVE_GLESv2 - Success
+-- Found GLESv2: /usr/local/lib/android/sdk/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include
+-- Found WrapVulkanHeaders: /usr/local/lib/android/sdk/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include
+CMake Warning (deprecated) at /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/lib/cmake/Qt6/QtPublicCMakeVersionHelpers.cmake:178 (cmake_policy):
+  The OLD behavior for policy CMP0156 will be removed from a future version
+  of CMake.
+
+  The cmake-policies(7) manual explains that the OLD behaviors of all
+  policies are deprecated and that a policy should be set to OLD only under
+  specific short-term circumstances.  Projects should be ported to the NEW
+  behavior and not rely on setting a policy to OLD.
+Call Stack (most recent call first):
+  /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/lib/cmake/Qt6Core/Qt6CoreMacros.cmake:727 (__qt_internal_set_cmp0156)
+  /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/lib/cmake/Qt6Core/Qt6CoreMacros.cmake:671 (_qt_internal_create_executable)
+  /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/lib/cmake/Qt6Core/Qt6CoreMacros.cmake:1000 (qt6_add_executable)
+  CMakeLists.txt:52 (qt_add_executable)
+This warning is for project developers.  Use -Wno-author or -Wno-deprecated
+to suppress it.
+
+CMake Warning (author) at /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/lib/cmake/Qt6Core/Qt6CoreMacros.cmake:3458 (message):
+  Qt policy QTP0004 is not set: You need qmldir files for each extra
+  directory that contains .qml files for your module.  Check
+  https://doc.qt.io/qt-6/qt-cmake-policy-qtp0004.html for policy details.
+  Use the qt_policy command to set the policy and suppress this warning.
+
+Call Stack (most recent call first):
+  /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/lib/cmake/Qt6Qml/Qt6QmlMacros.cmake:3645 (__qt_internal_setup_policy)
+  /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/lib/cmake/Qt6Qml/Qt6QmlMacros.cmake:951 (qt6_target_qml_sources)
+  /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/lib/cmake/Qt6Qml/Qt6QmlMacros.cmake:1296 (qt6_add_qml_module)
+  CMakeLists.txt:57 (qt_add_qml_module)
+This warning is for project developers.  Use -Wno-author to suppress it.
+
+-- Configuring 'fitlink' for the following Android ABIs: arm64-v8a (default)
+CMake Warning (author) at /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/lib/cmake/Qt6Core/Qt6CoreMacros.cmake:3458 (message):
+  Qt policy QTP0002 is not set: Target properties that specify
+  android-specific paths may contain generator expressions but they must
+  evaluate to valid JSON strings.  Check
+  https://doc.qt.io/qt-6/qt-cmake-policy-qtp0002.html for policy details.
+  Use the qt_policy command to set the policy and suppress this warning.
+
+Call Stack (most recent call first):
+  /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/lib/cmake/Qt6Core/Qt6AndroidMacros.cmake:1157 (__qt_internal_setup_policy)
+  /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/lib/cmake/Qt6Core/Qt6AndroidMacros.cmake:136 (_qt_internal_android_format_deployment_paths)
+  /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/lib/cmake/Qt6Core/Qt6AndroidMacros.cmake:1712 (qt6_android_generate_deployment_settings)
+  /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/lib/cmake/Qt6Core/Qt6CoreMacros.cmake:799 (_qt_internal_android_executable_finalizer)
+  /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/lib/cmake/Qt6Core/Qt6CoreMacros.cmake:799 (cmake_language)
+  /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/lib/cmake/Qt6Core/Qt6CoreMacros.cmake:877 (_qt_internal_finalize_executable)
+  /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/lib/cmake/Qt6Core/Qt6CoreMacros.cmake:846:EVAL:1 (qt6_finalize_target)
+  CMakeLists.txt:DEFERRED
+This warning is for project developers.  Use -Wno-author to suppress it.
+
+-- Found android platform plugin at: /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/plugins/platforms/libplugins_platforms_qtforandroid_arm64-v8a.so
+-- Configuring done (2.3s)
+-- Generating done (0.1s)
+-- Build files have been written to: /home/runner/work/Fitlink/Fitlink/qt/build-android-arm64-v8a
+[1/38] Copying fitlink qml resources into build dir
+[2/38] Copying fitlink qml sources into build dir
+[3/38] Automatic MOC and UIC for target fitlink
+[4/38] Running rcc for resource qmake_FitLink
+[5/38] Running AUTOMOC file extraction for target fitlink
+[6/38] Running rcc for resource fitlink_raw_qml_0
+[7/38] Running moc --collect-json for target fitlink
+[8/38] Generating .rcc/qmlcache/fitlink_qmlcache_loader.cpp
+[9/38] Automatic QML type registration for target fitlink
+[10/38] Generating .rcc/qmlcache/fitlink_qml/components/FitIcon_qml.cpp, .rcc/qmlcache/fitlink_qml/components/FitIcon_qml.cpp.aotstats
+[11/38] Generating .rcc/qmlcache/fitlink_qml/components/DeviceScanDialog_qml.cpp, .rcc/qmlcache/fitlink_qml/components/DeviceScanDialog_qml.cpp.aotstats
+[12/38] Generating .rcc/qmlcache/fitlink_qml/views/OverviewView_qml.cpp, .rcc/qmlcache/fitlink_qml/views/OverviewView_qml.cpp.aotstats
+[13/38] Generating .rcc/qmlcache/fitlink_qml/views/TimeSyncView_qml.cpp, .rcc/qmlcache/fitlink_qml/views/TimeSyncView_qml.cpp.aotstats
+[14/38] Generating .rcc/qmlcache/fitlink_qml/views/ActivityView_qml.cpp, .rcc/qmlcache/fitlink_qml/views/ActivityView_qml.cpp.aotstats
+[15/38] Generating .rcc/qmlcache/fitlink_qml/views/DeviceProtocolView_qml.cpp, .rcc/qmlcache/fitlink_qml/views/DeviceProtocolView_qml.cpp.aotstats
+[16/38] Generating .rcc/qmlcache/fitlink_qml/views/NotificationsView_qml.cpp, .rcc/qmlcache/fitlink_qml/views/NotificationsView_qml.cpp.aotstats
+[17/38] Generating .rcc/qmlcache/fitlink_qml/Main_qml.cpp, .rcc/qmlcache/fitlink_qml/Main_qml.cpp.aotstats
+[18/38] Building CXX object CMakeFiles/fitlink.dir/src/protocol/FeeaCodec.cpp.o
+FAILED: [code=1] CMakeFiles/fitlink.dir/src/protocol/FeeaCodec.cpp.o 
+/usr/local/lib/android/sdk/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android28 --sysroot=/usr/local/lib/android/sdk/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DFITLINK_PLATFORM_ANDROID=1 -DQT_BLUETOOTH_LIB -DQT_CORE_LIB -DQT_GUI_LIB -DQT_NETWORK_LIB -DQT_NO_DEBUG -DQT_OPENGL_LIB -DQT_QMLINTEGRATION_LIB -DQT_QMLMETA_LIB -DQT_QMLMODELS_LIB -DQT_QMLWORKERSCRIPT_LIB -DQT_QML_LIB -DQT_QUICKCONTROLS2_LIB -DQT_QUICK_LIB -Dfitlink_EXPORTS -I/home/runner/work/Fitlink/Fitlink/qt/build-android-arm64-v8a/fitlink_autogen/include -I/home/runner/work/Fitlink/Fitlink/qt -I/home/runner/work/Fitlink/Fitlink/qt/src -isystem /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/include/QtQml/6.9.3 -isystem /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/include/QtQml/6.9.3/QtQml -isystem /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/include/QtCore/6.9.3 -isystem /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/include/QtCore/6.9.3/QtCore -isystem /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/include/QtCore -isystem /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/include -isystem /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/mkspecs/android-clang -isystem /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/include/QtQml -isystem /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/include/QtQmlIntegration -isystem /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/include/QtNetwork -isystem /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/include/QtGui -isystem /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/include/QtQuick -isystem /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/include/QtQmlMeta -isystem /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/include/QtQmlModels -isystem /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/include/QtQmlWorkerScript -isystem /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/include/QtOpenGL -isystem /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/include/QtQuickControls2 -isystem /home/runner/work/_temp/qt-android/Qt/6.9.3/android_arm64_v8a/include/QtBluetooth -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O3 -DNDEBUG  -std=c++17 -fPIC -fvisibility=default -pthread -MD -MT CMakeFiles/fitlink.dir/src/protocol/FeeaCodec.cpp.o -MF CMakeFiles/fitlink.dir/src/protocol/FeeaCodec.cpp.o.d -o CMakeFiles/fitlink.dir/src/protocol/FeeaCodec.cpp.o -c /home/runner/work/Fitlink/Fitlink/qt/src/protocol/FeeaCodec.cpp
+/home/runner/work/Fitlink/Fitlink/qt/src/protocol/FeeaCodec.cpp:305:31: error: no matching function for call to 'max'
+  305 |         const int remaining = std::max(0, clampedMax - titleBytes.size() - 2);
+      |                               ^~~~~~~~
+/usr/local/lib/android/sdk/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/c++/v1/__algorithm/max.h:35:1: note: candidate template ignored: deduced conflicting types for parameter '_Tp' ('int' vs. 'qsizetype' (aka 'long long'))
+   35 | max(_LIBCPP_LIFETIMEBOUND const _Tp& __a, _LIBCPP_LIFETIMEBOUND const _Tp& __b) {
+      | ^
+/usr/local/lib/android/sdk/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/c++/v1/__algorithm/max.h:43:1: note: candidate template ignored: could not match 'initializer_list<_Tp>' against 'int'
+   43 | max(initializer_list<_Tp> __t, _Compare __comp) {
+      | ^
+/usr/local/lib/android/sdk/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/c++/v1/__algorithm/max.h:48:86: note: candidate function template not viable: requires single argument '__t', but 2 arguments were provided
+   48 | _LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 _Tp max(initializer_list<_Tp> __t) {
+      |                                                                                      ^   ~~~~~~~~~~~~~~~~~~~~~~~~~
+/usr/local/lib/android/sdk/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/c++/v1/__algorithm/max.h:29:1: note: candidate function template not viable: requires 3 arguments, but 2 were provided
+   29 | max(_LIBCPP_LIFETIMEBOUND const _Tp& __a, _LIBCPP_LIFETIMEBOUND const _Tp& __b, _Compare __comp) {
+      | ^                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+1 error generated.
+[19/38] Building CXX object CMakeFiles/fitlink.dir/src/main.cpp.o
+[20/38] Building CXX object CMakeFiles/fitlink.dir/src/notifications/AndroidNotificationBridge.cpp.o
+[21/38] Building CXX object CMakeFiles/fitlink.dir/fitlink_autogen/mocs_compilation.cpp.o
+[22/38] Building CXX object CMakeFiles/fitlink.dir/src/core/AppController.cpp.o
+[23/38] Building CXX object CMakeFiles/fitlink.dir/src/ble/BleWatchManager.cpp.o
+ninja: build stopped: subcommand failed.
+Error: Process completed with exit code 1.
