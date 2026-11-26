@@ -430,14 +430,28 @@ export default function App() {
     };
     session.onActivityDataReceived = (dayOffset, steps, distanceMeters) => {
       const targetKey = getLocalDateKey(dateOffsetFromToday(dayOffset));
-      setActivityState((prev) => ({
-        ...prev,
-        dailyByDate: {
-          ...prev.dailyByDate,
-          [targetKey]: { steps, distanceMeters },
-        },
-        lastActivitySyncedAt: formatShortTime(),
-      }));
+      const cleanSteps = Math.max(0, steps);
+      const cleanDist = Math.max(0, distanceMeters);
+      setActivityState((prev) => {
+        const existing = prev.dailyByDate[targetKey];
+        const prevSteps = existing?.steps ?? 0;
+        const prevDist = existing?.distanceMeters ?? 0;
+        // Keep existing non-zero totals if an idle or trailing zero packet arrives for the same date.
+        if (cleanSteps === 0 && cleanDist === 0 && (prevSteps > 0 || prevDist > 0)) {
+          return prev;
+        }
+        return {
+          ...prev,
+          dailyByDate: {
+            ...prev.dailyByDate,
+            [targetKey]: {
+              steps: cleanSteps > 0 ? cleanSteps : prevSteps,
+              distanceMeters: cleanDist > 0 ? cleanDist : prevDist,
+            },
+          },
+          lastActivitySyncedAt: formatShortTime(),
+        };
+      });
     };
     session.onHeartRateReceived = (bpm) => {
       if (hrTimerRef.current !== null) {

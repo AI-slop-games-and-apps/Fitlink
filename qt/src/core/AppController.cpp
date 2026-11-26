@@ -628,9 +628,22 @@ void AppController::onBleStateChanged(BleWatchManager::ConnectionState state) {
 void AppController::onActivityDataReceived(int dayOffset, int steps, int distanceMeters) {
     const QDate targetDate = QDate::currentDate().addDays(-std::clamp(dayOffset, 0, 6));
     const QString key = targetDate.toString(Qt::ISODate);
+    const int cleanSteps = std::max(0, steps);
+    const int cleanDist = std::max(0, distanceMeters);
+
+    const bool hasExisting = m_dailyActivityByDate.contains(key);
+    const QVariantMap existing = hasExisting ? m_dailyActivityByDate.value(key).toMap() : QVariantMap();
+    const int prevSteps = hasExisting ? existing.value(QStringLiteral("steps"), 0).toInt() : 0;
+    const int prevDist = hasExisting ? existing.value(QStringLiteral("distanceMeters"), 0).toInt() : 0;
+
+    // Keep existing non-zero totals if an idle or trailing zero packet arrives for the same date.
+    if (cleanSteps == 0 && cleanDist == 0 && (prevSteps > 0 || prevDist > 0)) {
+        return;
+    }
+
     QVariantMap entry;
-    entry[QStringLiteral("steps")] = std::max(0, steps);
-    entry[QStringLiteral("distanceMeters")] = std::max(0, distanceMeters);
+    entry[QStringLiteral("steps")] = (cleanSteps > 0) ? cleanSteps : prevSteps;
+    entry[QStringLiteral("distanceMeters")] = (cleanDist > 0) ? cleanDist : prevDist;
     m_dailyActivityByDate[key] = entry;
     m_lastActivitySyncedAt = QDateTime::currentDateTime();
     emit activityChanged();
