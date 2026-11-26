@@ -30,6 +30,8 @@
 
     <application
         android:name="org.qtproject.qt.android.bindings.QtApplication"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:hardwareAccelerated="true"
         android:extractNativeLibs="true"
         android:label="FitLink"

@@ -1030,14 +1030,14 @@ export default function App() {
   return (
     <div className="flex min-h-screen bg-[#F5F7FA] text-[#0F172A]">
       {/* Desktop / Tablet Material Navigation Rail (Debian amd64 / arm64) */}
-      <aside className="hidden w-60 shrink-0 flex-col border-r border-[#E2E8F0] bg-white md:flex">
-        <div className="flex h-16 items-center px-6">
+      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-[#E2E8F0] bg-white md:flex">
+        <div className="flex h-16 shrink-0 items-center px-6">
           <span className="font-[family-name:var(--font-display)] text-xl font-bold tracking-tight text-[#0F172A] whitespace-nowrap">
             FitLink
           </span>
         </div>
 
-        <nav className="flex-1 space-y-1 px-3 py-2" aria-label="Main navigation">
+        <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-2" aria-label="Main navigation">
           {NAV_ITEMS.map((item) => {
             const Icon = item.icon;
             const active = activeTab === item.id;

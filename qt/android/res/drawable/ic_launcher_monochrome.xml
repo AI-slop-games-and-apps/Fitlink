@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Top watch strap -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M44,26 H64 A3,3 0 0,1 67,29 V33 H41 V29 A3,3 0 0,1 44,26 Z" />
+
+    <!-- Bottom watch strap -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M41,75 H67 V79 A3,3 0 0,1 64,82 H44 A3,3 0 0,1 41,79 Z" />
+
+    <!-- Watch case outline -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4.2"
+        android:pathData="M44,35 H64 A9,9 0 0,1 73,44 V64 A9,9 0 0,1 64,73 H44 A9,9 0 0,1 35,64 V44 A9,9 0 0,1 44,35 Z" />
+
+    <!-- Clock hands -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M54,44 L54,54 L61,58.5" />
+
+    <!-- Center hub dot -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,51.4 A2.6,2.6 0 1,1 54,56.6 A2.6,2.6 0 1,1 54,51.4 Z" />
+</vector>
