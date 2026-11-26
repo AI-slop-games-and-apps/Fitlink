@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
+import FitLink
 
 ScrollView {
     id: root
@@ -9,11 +10,11 @@ ScrollView {
     clip: true
 
     ColumnLayout {
-        width: Math.min(root.availableWidth - 48, 960)
+        width: root.availableWidth < 540 ? root.availableWidth - 24 : Math.min(root.availableWidth - 48, 960)
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.top: parent.top
-        anchors.topMargin: 24
-        spacing: 20
+        anchors.topMargin: 20
+        spacing: 18
 
         // Watch Connection & Battery Summary Card
         Rectangle {
@@ -84,24 +85,94 @@ ScrollView {
 
                 Flow {
                     Layout.fillWidth: true
-                    spacing: 12
+                    spacing: 10
 
-                    Button {
-                        text: qsTr("Sync Time Now")
-                        highlighted: true
+                    AbstractButton {
+                        id: syncTimeBtn
+                        padding: 0
                         enabled: appController.isConnected
+                        implicitHeight: 44
+                        implicitWidth: syncTimeRow.implicitWidth + 32
                         onClicked: appController.syncTimeNow()
+                        background: Rectangle {
+                            radius: 10
+                            color: !syncTimeBtn.enabled ? "#93C5FD" : (syncTimeBtn.pressed ? "#1D4ED8" : "#2563EB")
+                        }
+                        contentItem: Item {
+                            Row {
+                                id: syncTimeRow
+                                anchors.centerIn: parent
+                                spacing: 8
+                                FitIcon { anchors.verticalCenter: parent.verticalCenter; name: "time"; size: 17; color: "#FFFFFF" }
+                                Label {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: qsTr("Sync Time Now")
+                                    font.pixelSize: 14
+                                    font.weight: Font.DemiBold
+                                    color: "#FFFFFF"
+                                }
+                            }
+                        }
                     }
-                    Button {
-                        text: qsTr("Find Watch")
+
+                    AbstractButton {
+                        id: findWatchBtn
+                        padding: 0
                         enabled: appController.isConnected
+                        implicitHeight: 44
+                        implicitWidth: findWatchRow.implicitWidth + 32
                         onClicked: appController.triggerFindWatch()
+                        background: Rectangle {
+                            radius: 10
+                            color: findWatchBtn.pressed ? "#E2E8F0" : "#F1F5F9"
+                            opacity: findWatchBtn.enabled ? 1.0 : 0.5
+                        }
+                        contentItem: Item {
+                            Row {
+                                id: findWatchRow
+                                anchors.centerIn: parent
+                                spacing: 8
+                                FitIcon { anchors.verticalCenter: parent.verticalCenter; name: "find"; size: 17; color: "#0F172A" }
+                                Label {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: qsTr("Find Watch")
+                                    font.pixelSize: 14
+                                    font.weight: Font.DemiBold
+                                    color: "#0F172A"
+                                }
+                            }
+                        }
                     }
-                    Button {
-                        text: qsTr("Refresh Battery")
-                        flat: true
+
+                    AbstractButton {
+                        id: refreshBattBtn
+                        padding: 0
                         enabled: appController.isConnected
+                        implicitHeight: 44
+                        implicitWidth: refreshBattRow.implicitWidth + 32
                         onClicked: appController.refreshBattery()
+                        background: Rectangle {
+                            radius: 10
+                            color: refreshBattBtn.pressed ? "#F8FAFC" : "#FFFFFF"
+                            border.width: 1
+                            border.color: "#CBD5E1"
+                            opacity: refreshBattBtn.enabled ? 1.0 : 0.5
+                        }
+                        contentItem: Item {
+                            Row {
+                                id: refreshBattRow
+                                anchors.centerIn: parent
+                                spacing: 8
+                                FitIcon { anchors.verticalCenter: parent.verticalCenter; name: "battery"; size: 17; color: "#475569" }
+                                Label {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: qsTr("Refresh Battery")
+                                    font.pixelSize: 14
+                                    font.weight: Font.Medium
+                                    color: "#0F172A"
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -126,7 +197,11 @@ ScrollView {
                     anchors.fill: parent
                     anchors.margins: 18
                     spacing: 6
-                    Label { text: qsTr("Last Time Sync"); font.pixelSize: 12; color: "#64748B" }
+                    RowLayout {
+                        spacing: 6
+                        FitIcon { name: "time"; size: 15; color: "#2563EB" }
+                        Label { text: qsTr("Last Time Sync"); font.pixelSize: 12; color: "#64748B" }
+                    }
                     Label {
                         text: appController.lastSyncedTime
                         font.pixelSize: 15
@@ -156,7 +231,11 @@ ScrollView {
                     anchors.fill: parent
                     anchors.margins: 18
                     spacing: 6
-                    Label { text: qsTr("OS Notification Mirror"); font.pixelSize: 12; color: "#64748B" }
+                    RowLayout {
+                        spacing: 6
+                        FitIcon { name: "alerts"; size: 15; color: "#2563EB" }
+                        Label { text: qsTr("OS Notification Mirror"); font.pixelSize: 12; color: "#64748B" }
+                    }
                     Label {
                         text: appController.osMirroringEnabled ? qsTr("Mirroring Active") : qsTr("Mirroring Paused")
                         font.pixelSize: 15
@@ -185,7 +264,11 @@ ScrollView {
                     anchors.fill: parent
                     anchors.margins: 18
                     spacing: 6
-                    Label { text: qsTr("Scheduled Alerts"); font.pixelSize: 12; color: "#64748B" }
+                    RowLayout {
+                        spacing: 6
+                        FitIcon { name: "calendar"; size: 15; color: "#2563EB" }
+                        Label { text: qsTr("Scheduled Alerts"); font.pixelSize: 12; color: "#64748B" }
+                    }
                     Label {
                         text: qsTr("%1 configured").arg(appController.scheduledAlerts.length)
                         font.pixelSize: 15

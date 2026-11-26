@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Bell, BookmarkPlus, Clock, Play, Plus, Send, Trash2 } from 'lucide-react';
+import { Bell, BookmarkPlus, Clock, FlaskConical, Play, Plus, Send, Trash2 } from 'lucide-react';
 import {
+  NOTIFICATION_FORMAT_OPTIONS,
   WATCH_APP_PRESETS,
   getNotificationMetrics,
   getPresetLabel,
+  type NotificationFormat,
 } from '../protocol/feeaCodec';
 import type {
   AppMirrorRule,
@@ -17,6 +19,10 @@ type SubTab = 'mirror' | 'composer' | 'scheduled';
 interface NotificationsViewProps {
   isConnected: boolean;
   mtuSize: number;
+  notificationFormat: NotificationFormat;
+  onChangeNotificationFormat: (format: NotificationFormat) => void;
+  isTestingFormats: boolean;
+  onTestAllFormats: (iconId: number, title: string, body: string) => void;
   osPlatformMode: 'linux' | 'android';
   onChangeOsPlatformMode: (mode: 'linux' | 'android') => void;
   osMirroringEnabled: boolean;
@@ -56,6 +62,10 @@ function formatCountdown(nextRunMs: number, nowMs: number): string {
 export function NotificationsView({
   isConnected,
   mtuSize,
+  notificationFormat,
+  onChangeNotificationFormat,
+  isTestingFormats,
+  onTestAllFormats,
   osPlatformMode,
   onChangeOsPlatformMode,
   osMirroringEnabled,
@@ -77,8 +87,8 @@ export function NotificationsView({
 }: NotificationsViewProps) {
   const [subTab, setSubTab] = useState<SubTab>('composer');
 
-  // Manual Composer state
-  const [iconId, setIconId] = useState<number>(0x06); // WhatsApp
+  // Manual Composer state — default to SMS (0x01), which is enabled by default on most 0xFEEA watches
+  const [iconId, setIconId] = useState<number>(0x01);
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
 
@@ -96,7 +106,7 @@ export function NotificationsView({
     return () => window.clearInterval(id);
   }, []);
 
-  const metrics = getNotificationMetrics(title, body, mtuSize);
+  const metrics = getNotificationMetrics(title, body, mtuSize, notificationFormat);
 
   const handleSendComposer = (e: React.FormEvent) => {
     e.preventDefault();
@@ -333,19 +343,37 @@ export function NotificationsView({
                   />
                 </div>
 
+                <div>
+                  <label htmlFor="notif-format" className="block text-xs font-medium text-[#475569]">
+                    0x64 Payload Format
+                  </label>
+                  <select
+                    id="notif-format"
+                    value={notificationFormat}
+                    onChange={(e) => onChangeNotificationFormat(e.target.value as NotificationFormat)}
+                    className="mt-1.5 h-10 w-full rounded-xl border border-[#CBD5E1] bg-white px-3 text-sm text-[#0F172A] focus:border-[#2563EB] focus:outline-none"
+                  >
+                    {NOTIFICATION_FORMAT_OPTIONS.map((opt) => (
+                      <option key={opt.id} value={opt.id}>
+                        {opt.label} — {opt.description}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
                 <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[#64748B]">
                   <span className="font-mono tabular-nums">
-                    {metrics.utf8Bytes} / 128 UTF-8 bytes · {metrics.chunks} BLE chunk(s) at {mtuSize}B MTU
+                    {metrics.utf8Bytes} / 128 bytes · {metrics.chunks} BLE chunk(s) at {mtuSize}B MTU
                   </span>
                   {metrics.utf8Bytes > 128 && (
-                    <span className="text-[#D97706]">Truncates safely at 128 UTF-8 bytes</span>
+                    <span className="text-[#D97706]">Truncates safely at 128 bytes</span>
                   )}
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3 pt-1">
                   <button
                     type="submit"
-                    disabled={!isConnected || (!title.trim() && !body.trim())}
+                    disabled={!isConnected || isTestingFormats || (!title.trim() && !body.trim())}
                     className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#2563EB] px-4 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563EB] disabled:cursor-not-allowed disabled:opacity-50 whitespace-nowrap"
                   >
                     <Send className="h-4 w-4" />
@@ -353,12 +381,27 @@ export function NotificationsView({
                   </button>
                   <button
                     type="button"
-                    disabled={!isConnected}
-                    onClick={() => onSendManualNotification(0x01, 'FitLink', 'Test alert')}
+                    disabled={!isConnected || isTestingFormats}
+                    onClick={() => onSendManualNotification(0x01, 'FitLink', 'Hi')}
                     className="inline-flex h-10 items-center gap-2 rounded-xl border border-[#2563EB]/30 bg-[#EFF6FF] px-4 text-sm font-medium text-[#2563EB] transition-colors hover:bg-[#DBEAFE] disabled:cursor-not-allowed disabled:opacity-50 whitespace-nowrap"
                   >
                     <Bell className="h-4 w-4" />
                     <span>Send Quick Test</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!isConnected || isTestingFormats}
+                    onClick={() =>
+                      onTestAllFormats(
+                        iconId,
+                        title.trim() || 'FitLink',
+                        body.trim() || 'Hi'
+                      )
+                    }
+                    className="inline-flex h-10 items-center gap-2 rounded-xl border border-[#CBD5E1] bg-white px-4 text-sm font-medium text-[#0F172A] transition-colors hover:bg-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-50 whitespace-nowrap"
+                  >
+                    <FlaskConical className="h-4 w-4" />
+                    <span>{isTestingFormats ? 'Testing Formats...' : 'Test All Formats'}</span>
                   </button>
                   <button
                     type="button"

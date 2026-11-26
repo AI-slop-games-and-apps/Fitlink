@@ -240,6 +240,21 @@ void AppController::syncCustomTime(const QString &isoDateTime, int utcOffsetMinu
     }
 }
 
+int AppController::notificationFormat() const {
+    return static_cast<int>(m_ble->notificationFormat());
+}
+
+void AppController::setNotificationFormat(int format) {
+    const int clamped = std::clamp(format, 0, 5);
+    const auto next = static_cast<NotificationFormat>(clamped);
+    if (m_ble->notificationFormat() == next) {
+        return;
+    }
+    m_ble->setNotificationFormat(next);
+    emit notificationFormatChanged();
+    savePersistedState();
+}
+
 void AppController::sendManualNotification(int iconId, const QString &title, const QString &body) {
     if (title.trimmed().isEmpty() && body.trimmed().isEmpty()) {
         emit toastMessage(tr("Enter a title or message body before sending"), true);
@@ -248,6 +263,33 @@ void AppController::sendManualNotification(int iconId, const QString &title, con
     const auto icon = static_cast<WatchAppIcon>(std::clamp(iconId, 0, 15));
     if (m_ble->sendNotification(icon, title, body)) {
         emit toastMessage(tr("Notification pushed to watch"), false);
+    }
+}
+
+void AppController::testAllNotificationFormats(int iconId, const QString &title, const QString &body) {
+    if (!isConnected()) {
+        emit toastMessage(tr("Connect a watch before testing notification formats"), true);
+        return;
+    }
+    const auto icon = static_cast<WatchAppIcon>(std::clamp(iconId, 0, 15));
+    const QString baseTitle = title.trimmed().isEmpty() ? QStringLiteral("FitLink") : title.trimmed();
+    const QString baseBody = body.trimmed().isEmpty() ? QStringLiteral("Hi") : body.trimmed();
+    static const char *labels[6] = {
+        "Standard UTF-8",
+        "Null-Terminated UTF-8",
+        "V2 Flag Header",
+        "Split Title / Body",
+        "Length-Prefixed UTF-8",
+        "UTF-16LE Unicode"
+    };
+    for (int i = 0; i < 6; ++i) {
+        QTimer::singleShot(i * 1200, this, [this, icon, baseTitle, baseBody, i]() {
+            if (!isConnected()) {
+                return;
+            }
+            emit toastMessage(tr("Testing %1/6: %2").arg(i + 1).arg(QString::fromLatin1(labels[i])), false);
+            m_ble->sendNotification(icon, QStringLiteral("%1 #%2").arg(baseTitle).arg(i + 1), baseBody, i);
+        });
     }
 }
 
@@ -806,6 +848,9 @@ void AppController::loadPersistedState() {
     m_ble->setProtocolPreference(static_cast<ProtocolPreference>(settings.value(QStringLiteral("protocol/pref"), 0).toInt()));
     m_ble->setMtuSize(settings.value(QStringLiteral("protocol/mtu"), 20).toInt());
     m_ble->setWriteDelayMs(settings.value(QStringLiteral("protocol/delayMs"), 50).toInt());
+    m_ble->setNotificationFormat(static_cast<NotificationFormat>(
+        std::clamp(settings.value(QStringLiteral("notifications/payloadFormat"), 0).toInt(), 0, 5)
+    ));
     m_osBridge->setEnabled(settings.value(QStringLiteral("notifications/osMirroringEnabled"), true).toBool());
 
     QFile file(stateFilePath());
@@ -840,6 +885,7 @@ void AppController::savePersistedState() const {
     settings.setValue(QStringLiteral("protocol/pref"), static_cast<int>(m_ble->protocolPreference()));
     settings.setValue(QStringLiteral("protocol/mtu"), m_ble->mtuSize());
     settings.setValue(QStringLiteral("protocol/delayMs"), m_ble->writeDelayMs());
+    settings.setValue(QStringLiteral("notifications/payloadFormat"), static_cast<int>(m_ble->notificationFormat()));
     settings.setValue(QStringLiteral("notifications/osMirroringEnabled"), m_osBridge->isEnabled());
 
     QJsonObject root;

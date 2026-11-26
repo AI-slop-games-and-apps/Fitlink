@@ -7,6 +7,7 @@ import { NotificationsView } from './components/NotificationsView';
 import { OverviewView } from './components/OverviewView';
 import { TimeSyncView } from './components/TimeSyncView';
 import {
+  NOTIFICATION_FORMAT_OPTIONS,
   bytesToHex,
   encodeFindWatch,
   encodeGetTodayActivity,
@@ -19,6 +20,7 @@ import {
   formatProtocolLabel,
   maxNotificationTextBytes,
   resolveProtocolVersion,
+  type NotificationFormat,
   type ProtocolPreference,
 } from './protocol/feeaCodec';
 import { WebBleWatchSession } from './protocol/watchController';
@@ -84,6 +86,7 @@ interface PersistedConfig {
   protocolPreference: ProtocolPreference;
   mtuSize: number;
   writeDelayMs: number;
+  notificationFormat: NotificationFormat;
   osMirroringEnabled: boolean;
   appFilters: AppMirrorRule[];
   templates: NotificationTemplate[];
@@ -97,12 +100,18 @@ function loadPersisted(): PersistedConfig {
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<PersistedConfig>;
       const rawAct = parsed.activityState;
+      const validFormat = NOTIFICATION_FORMAT_OPTIONS.some(
+        (opt) => opt.id === parsed.notificationFormat
+      )
+        ? (parsed.notificationFormat as NotificationFormat)
+        : 'standard';
       return {
         use24Hour: parsed.use24Hour ?? true,
         autoSyncOnConnect: parsed.autoSyncOnConnect ?? false,
         protocolPreference: parsed.protocolPreference ?? 'auto',
         mtuSize: parsed.mtuSize ?? 20,
         writeDelayMs: parsed.writeDelayMs ?? 50,
+        notificationFormat: validFormat,
         osMirroringEnabled: parsed.osMirroringEnabled ?? true,
         appFilters: parsed.appFilters?.length ? parsed.appFilters : DEFAULT_APP_FILTERS,
         templates: parsed.templates ?? DEFAULT_TEMPLATES,
@@ -157,6 +166,7 @@ function loadPersisted(): PersistedConfig {
     protocolPreference: 'auto',
     mtuSize: 20,
     writeDelayMs: 50,
+    notificationFormat: 'standard',
     osMirroringEnabled: true,
     appFilters: DEFAULT_APP_FILTERS,
     templates: DEFAULT_TEMPLATES,
@@ -288,6 +298,10 @@ export default function App() {
 
   const [osPlatformMode, setOsPlatformMode] = useState<'linux' | 'android'>('linux');
   const [osMirroringEnabled, setOsMirroringEnabled] = useState(initial.osMirroringEnabled);
+  const [notificationFormat, setNotificationFormat] = useState<NotificationFormat>(
+    initial.notificationFormat
+  );
+  const [isTestingFormats, setIsTestingFormats] = useState(false);
   const [androidPermissionGranted, setAndroidPermissionGranted] = useState(false);
   const [appFilters, setAppFilters] = useState<AppMirrorRule[]>(initial.appFilters);
 
@@ -325,6 +339,7 @@ export default function App() {
       protocolPreference: watch.protocolPreference,
       mtuSize: watch.mtuSize,
       writeDelayMs: watch.writeDelayMs,
+      notificationFormat,
       osMirroringEnabled,
       appFilters,
       templates,
@@ -342,6 +357,7 @@ export default function App() {
     watch.protocolPreference,
     watch.mtuSize,
     watch.writeDelayMs,
+    notificationFormat,
     osMirroringEnabled,
     appFilters,
     templates,
@@ -788,14 +804,21 @@ export default function App() {
   };
 
   const handleSendNotification = useCallback(
-    async (iconId: number, title: string, body: string, sourceLabel = 'Push Notification (0x64)') => {
+    async (
+      iconId: number,
+      title: string,
+      body: string,
+      sourceLabel = 'Push Notification (0x64)',
+      formatOverride?: NotificationFormat
+    ) => {
       if (!watch.isConnected) {
         showToast('Connect a watch before pushing notifications', true);
         return;
       }
       const resolved = resolveProtocolVersion(watch.detectedProtocol, watch.protocolPreference);
       const maxBytes = maxNotificationTextBytes(resolved, watch.deviceInfo.firmware);
-      const pkt = encodeNotification(resolved, iconId, title, body, maxBytes);
+      const activeFormat = formatOverride ?? notificationFormat;
+      const pkt = encodeNotification(resolved, iconId, title, body, maxBytes, activeFormat);
       const ok = await transmitPacket(sourceLabel, pkt, resolved);
       if (ok) {
         setActiveWatchBanner({
@@ -804,10 +827,13 @@ export default function App() {
           body: body.trim(),
           receivedAt: formatNowTime(),
         });
-        showToast('Notification pushed to watch');
+        if (!formatOverride) {
+          showToast('Notification pushed to watch');
+        }
       }
     },
     [
+      notificationFormat,
       showToast,
       transmitPacket,
       watch.detectedProtocol,
@@ -815,6 +841,36 @@ export default function App() {
       watch.isConnected,
       watch.protocolPreference,
     ]
+  );
+
+  const handleTestAllNotificationFormats = useCallback(
+    async (iconId: number, title: string, body: string) => {
+      if (!watch.isConnected) {
+        showToast('Connect a watch before testing notification formats', true);
+        return;
+      }
+      setIsTestingFormats(true);
+      try {
+        for (let i = 0; i < NOTIFICATION_FORMAT_OPTIONS.length; i += 1) {
+          const opt = NOTIFICATION_FORMAT_OPTIONS[i];
+          showToast(`Testing ${i + 1}/${NOTIFICATION_FORMAT_OPTIONS.length}: ${opt.label}`);
+          await handleSendNotification(
+            iconId,
+            `${title} #${i + 1}`,
+            body,
+            `Test ${opt.label}`,
+            opt.id
+          );
+          if (i < NOTIFICATION_FORMAT_OPTIONS.length - 1) {
+            await new Promise((resolve) => setTimeout(resolve, 1200));
+          }
+        }
+        showToast('Finished testing all 0x64 formats — select the one shown on your watch');
+      } finally {
+        setIsTestingFormats(false);
+      }
+    },
+    [handleSendNotification, showToast, watch.isConnected]
   );
 
   const handleToggleUse24Hour = async (next: boolean) => {
@@ -1036,6 +1092,12 @@ export default function App() {
             <NotificationsView
               isConnected={watch.isConnected}
               mtuSize={watch.mtuSize}
+              notificationFormat={notificationFormat}
+              onChangeNotificationFormat={setNotificationFormat}
+              isTestingFormats={isTestingFormats}
+              onTestAllFormats={(iconId, title, body) =>
+                void handleTestAllNotificationFormats(iconId, title, body)
+              }
               osPlatformMode={osPlatformMode}
               onChangeOsPlatformMode={setOsPlatformMode}
               osMirroringEnabled={osMirroringEnabled}

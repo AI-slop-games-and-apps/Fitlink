@@ -21,6 +21,15 @@ enum class ProtocolPreference {
     ForceV1 = 2
 };
 
+enum class NotificationFormat {
+    Standard = 0,       // [icon] [UTF-8 text]
+    NulTerminated = 1,  // [icon] [UTF-8 text] [0x00]
+    V2Header = 2,       // [icon] [0x00] [UTF-8 text]
+    SplitTitle = 3,     // [icon] [title] [0x00] [body] [0x00]
+    LengthPrefixed = 4, // [icon] [len] [UTF-8 text]
+    Utf16Le = 5         // [icon] [UTF-16LE text]
+};
+
 // Standard 0xFEEA BLE notification source icon IDs
 enum class WatchAppIcon : uint8_t {
     IncomingCall = 0x00,
@@ -136,7 +145,8 @@ public:
                                          WatchAppIcon icon,
                                          const QString &title,
                                          const QString &body,
-                                         int maxUtf8Bytes = 128);
+                                         int maxUtf8Bytes = 128,
+                                         NotificationFormat format = NotificationFormat::Standard);
     static QByteArray encodeFindWatch(ProtocolVersion version);
     static QByteArray encodeGetTodayActivity(ProtocolVersion version);
     static QByteArray encodeMeasureHeartRate(ProtocolVersion version);

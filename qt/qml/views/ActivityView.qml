@@ -2,11 +2,13 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
+import FitLink
 
 ScrollView {
     id: root
     contentWidth: availableWidth
     clip: true
+    readonly property bool isNarrow: root.availableWidth < 560
 
     property int selectedDayIndex: {
         var list = appController.weeklyActivity
@@ -127,13 +129,13 @@ ScrollView {
     }
 
     ColumnLayout {
-        width: Math.min(root.availableWidth - 48, 960)
+        width: root.isNarrow ? root.availableWidth - 24 : Math.min(root.availableWidth - 48, 960)
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.top: parent.top
-        anchors.topMargin: 24
-        spacing: 20
+        anchors.topMargin: 20
+        spacing: 18
 
-        // 1. Compact Top Activity Summary Card (2x2 Grid + km/mi toggle + Refresh)
+        // 1. Top Activity Summary Card (2x2 Grid + km/mi toggle + Refresh)
         Rectangle {
             Layout.fillWidth: true
             implicitHeight: topCardCol.implicitHeight
@@ -149,93 +151,149 @@ ScrollView {
                 anchors.right: parent.right
                 spacing: 0
 
-                // Compact header strip
-                RowLayout {
+                // Responsive header strip (stacks cleanly on phones so Refresh & km/mi stay full-size)
+                GridLayout {
                     Layout.fillWidth: true
                     Layout.leftMargin: 16
                     Layout.rightMargin: 16
-                    Layout.topMargin: 10
-                    Layout.bottomMargin: 10
-                    spacing: 10
+                    Layout.topMargin: 14
+                    Layout.bottomMargin: 14
+                    columns: root.isNarrow ? 1 : 2
+                    columnSpacing: 12
+                    rowSpacing: 12
 
-                    Label {
-                        text: qsTr("Daily Activity")
-                        font.pixelSize: 14
-                        font.weight: Font.DemiBold
-                        color: "#0F172A"
-                    }
-
-                    Label {
-                        text: qsTr("· %1").arg(appController.lastActivitySyncText)
-                        font.pixelSize: 12
-                        color: "#64748B"
-                        elide: Text.ElideRight
+                    RowLayout {
                         Layout.fillWidth: true
-                    }
+                        spacing: 10
 
-                    // Compact segmented km / mi toggle
-                    Rectangle {
-                        radius: 8
-                        color: "#F1F5F9"
-                        implicitHeight: 30
-                        implicitWidth: unitRow.implicitWidth + 4
-
-                        RowLayout {
-                            id: unitRow
-                            anchors.centerIn: parent
-                            spacing: 2
-
-                            Button {
-                                text: "km"
-                                flat: true
-                                implicitHeight: 26
-                                implicitWidth: 38
-                                font.pixelSize: 11
-                                font.weight: Font.DemiBold
-                                onClicked: appController.distanceUnit = "km"
-                                background: Rectangle {
-                                    radius: 6
-                                    color: appController.distanceUnit === "km" ? "#FFFFFF" : "transparent"
-                                }
-                                contentItem: Label {
-                                    text: parent.text
-                                    font: parent.font
-                                    color: appController.distanceUnit === "km" ? "#2563EB" : "#64748B"
-                                    horizontalAlignment: Text.AlignHCenter
-                                    verticalAlignment: Text.AlignVCenter
-                                }
+                        Rectangle {
+                            width: 34
+                            height: 34
+                            radius: 9
+                            color: "#EFF6FF"
+                            FitIcon {
+                                anchors.centerIn: parent
+                                name: "activity"
+                                size: 18
+                                color: "#2563EB"
                             }
+                        }
 
-                            Button {
-                                text: "mi"
-                                flat: true
-                                implicitHeight: 26
-                                implicitWidth: 38
-                                font.pixelSize: 11
-                                font.weight: Font.DemiBold
-                                onClicked: appController.distanceUnit = "mi"
-                                background: Rectangle {
-                                    radius: 6
-                                    color: appController.distanceUnit === "mi" ? "#FFFFFF" : "transparent"
-                                }
-                                contentItem: Label {
-                                    text: parent.text
-                                    font: parent.font
-                                    color: appController.distanceUnit === "mi" ? "#2563EB" : "#64748B"
-                                    horizontalAlignment: Text.AlignHCenter
-                                    verticalAlignment: Text.AlignVCenter
-                                }
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 1
+                            Label {
+                                text: qsTr("Daily Activity")
+                                font.pixelSize: 16
+                                font.weight: Font.Bold
+                                color: "#0F172A"
+                            }
+                            Label {
+                                text: appController.lastActivitySyncText
+                                font.pixelSize: 12
+                                color: "#64748B"
+                                elide: Text.ElideRight
+                                Layout.fillWidth: true
                             }
                         }
                     }
 
-                    Button {
-                        text: appController.isSyncingActivity ? qsTr("Syncing...") : qsTr("Refresh")
-                        highlighted: true
-                        implicitHeight: 32
-                        font.pixelSize: 12
-                        enabled: appController.isConnected && !appController.isSyncingActivity
-                        onClicked: appController.refreshActivity()
+                    RowLayout {
+                        Layout.fillWidth: root.isNarrow
+                        Layout.alignment: root.isNarrow ? Qt.AlignLeft : Qt.AlignRight
+                        spacing: 10
+
+                        // Touch-friendly segmented km / mi toggle
+                        Rectangle {
+                            radius: 10
+                            color: "#F1F5F9"
+                            implicitHeight: 42
+                            implicitWidth: unitRow.implicitWidth + 8
+
+                            RowLayout {
+                                id: unitRow
+                                anchors.centerIn: parent
+                                spacing: 4
+
+                                AbstractButton {
+                                    padding: 0
+                                    implicitHeight: 34
+                                    implicitWidth: 48
+                                    onClicked: appController.distanceUnit = "km"
+                                    background: Rectangle {
+                                        radius: 8
+                                        color: appController.distanceUnit === "km" ? "#FFFFFF" : "transparent"
+                                    }
+                                    contentItem: Label {
+                                        text: "km"
+                                        font.pixelSize: 13
+                                        font.weight: Font.DemiBold
+                                        color: appController.distanceUnit === "km" ? "#2563EB" : "#64748B"
+                                        horizontalAlignment: Text.AlignHCenter
+                                        verticalAlignment: Text.AlignVCenter
+                                    }
+                                }
+
+                                AbstractButton {
+                                    padding: 0
+                                    implicitHeight: 34
+                                    implicitWidth: 48
+                                    onClicked: appController.distanceUnit = "mi"
+                                    background: Rectangle {
+                                        radius: 8
+                                        color: appController.distanceUnit === "mi" ? "#FFFFFF" : "transparent"
+                                    }
+                                    contentItem: Label {
+                                        text: "mi"
+                                        font.pixelSize: 13
+                                        font.weight: Font.DemiBold
+                                        color: appController.distanceUnit === "mi" ? "#2563EB" : "#64748B"
+                                        horizontalAlignment: Text.AlignHCenter
+                                        verticalAlignment: Text.AlignVCenter
+                                    }
+                                }
+                            }
+                        }
+
+                        Item {
+                            visible: root.isNarrow
+                            Layout.fillWidth: true
+                        }
+
+                        AbstractButton {
+                            id: refreshActivityBtn
+                            padding: 0
+                            enabled: appController.isConnected && !appController.isSyncingActivity
+                            implicitHeight: 42
+                            implicitWidth: Math.max(122, refreshActivityRow.implicitWidth + 28)
+                            onClicked: appController.refreshActivity()
+                            background: Rectangle {
+                                radius: 10
+                                color: !refreshActivityBtn.enabled
+                                       ? "#93C5FD"
+                                       : (refreshActivityBtn.pressed ? "#1D4ED8" : "#2563EB")
+                            }
+                            contentItem: Item {
+                                Row {
+                                    id: refreshActivityRow
+                                    anchors.centerIn: parent
+                                    spacing: 7
+                                    FitIcon {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        name: "refresh"
+                                        size: 16
+                                        color: "#FFFFFF"
+                                    }
+                                    Label {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: appController.isSyncingActivity ? qsTr("Syncing...") : qsTr("Refresh")
+                                        font.pixelSize: 14
+                                        font.weight: Font.DemiBold
+                                        color: "#FFFFFF"
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -265,11 +323,15 @@ ScrollView {
                             anchors.rightMargin: 16
                             spacing: 2
 
-                            Label {
-                                text: qsTr("Distance Walked")
-                                font.pixelSize: 11
-                                font.weight: Font.Medium
-                                color: "#64748B"
+                            RowLayout {
+                                spacing: 6
+                                FitIcon { name: "distance"; size: 15; color: "#2563EB" }
+                                Label {
+                                    text: qsTr("Distance Walked")
+                                    font.pixelSize: 12
+                                    font.weight: Font.Medium
+                                    color: "#64748B"
+                                }
                             }
                             Label {
                                 text: appController.todayDistanceMeters >= 0
@@ -309,11 +371,15 @@ ScrollView {
                             anchors.rightMargin: 16
                             spacing: 2
 
-                            Label {
-                                text: qsTr("Steps Taken")
-                                font.pixelSize: 11
-                                font.weight: Font.Medium
-                                color: "#64748B"
+                            RowLayout {
+                                spacing: 6
+                                FitIcon { name: "steps"; size: 15; color: "#2563EB" }
+                                Label {
+                                    text: qsTr("Steps Taken")
+                                    font.pixelSize: 12
+                                    font.weight: Font.Medium
+                                    color: "#64748B"
+                                }
                             }
                             Label {
                                 text: appController.todaySteps >= 0 ? appController.todaySteps.toLocaleString() : "--"
@@ -348,11 +414,15 @@ ScrollView {
                             anchors.rightMargin: 16
                             spacing: 2
 
-                            Label {
-                                text: qsTr("Heart Rate")
-                                font.pixelSize: 11
-                                font.weight: Font.Medium
-                                color: "#64748B"
+                            RowLayout {
+                                spacing: 6
+                                FitIcon { name: "heart"; size: 15; color: "#DC2626" }
+                                Label {
+                                    text: qsTr("Heart Rate")
+                                    font.pixelSize: 12
+                                    font.weight: Font.Medium
+                                    color: "#64748B"
+                                }
                             }
                             Label {
                                 text: appController.latestHeartRate > 0
@@ -387,11 +457,15 @@ ScrollView {
                             anchors.rightMargin: 16
                             spacing: 2
 
-                            Label {
-                                text: qsTr("SpO2")
-                                font.pixelSize: 11
-                                font.weight: Font.Medium
-                                color: "#64748B"
+                            RowLayout {
+                                spacing: 6
+                                FitIcon { name: "droplet"; size: 15; color: "#16A34A" }
+                                Label {
+                                    text: qsTr("SpO2")
+                                    font.pixelSize: 12
+                                    font.weight: Font.Medium
+                                    color: "#64748B"
+                                }
                             }
                             Label {
                                 text: appController.latestSpo2 > 0
@@ -429,55 +503,104 @@ ScrollView {
                 anchors.margins: 20
                 spacing: 16
 
-                RowLayout {
+                GridLayout {
                     Layout.fillWidth: true
-                    spacing: 12
+                    columns: root.isNarrow ? 1 : 2
+                    columnSpacing: 12
+                    rowSpacing: 12
 
-                    ColumnLayout {
+                    RowLayout {
                         Layout.fillWidth: true
-                        spacing: 2
-                        Label {
-                            text: qsTr("Weekly Distance")
-                            font.pixelSize: 16
-                            font.weight: Font.Bold
-                            color: "#0F172A"
+                        spacing: 10
+
+                        Rectangle {
+                            width: 34
+                            height: 34
+                            radius: 9
+                            color: "#EFF6FF"
+                            FitIcon {
+                                anchors.centerIn: parent
+                                name: "distance"
+                                size: 18
+                                color: "#2563EB"
+                            }
                         }
-                        Label {
-                            text: qsTr("Total %1 · %2 of 7 goal days")
-                                  .arg(appController.formatDistanceWithUnit(root.weeklyTotalMeters()))
-                                  .arg(root.goalDaysCount())
-                            font.pixelSize: 12
-                            color: "#64748B"
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+                            Label {
+                                text: qsTr("Weekly Distance")
+                                font.pixelSize: 16
+                                font.weight: Font.Bold
+                                color: "#0F172A"
+                            }
+                            Label {
+                                text: qsTr("Total %1 · %2 of 7 goal days")
+                                      .arg(appController.formatDistanceWithUnit(root.weeklyTotalMeters()))
+                                      .arg(root.goalDaysCount())
+                                font.pixelSize: 12
+                                color: "#64748B"
+                            }
                         }
                     }
 
-                    // Daily goal stepper control
+                    // Touch-friendly Daily goal stepper control
                     RowLayout {
-                        spacing: 6
+                        Layout.alignment: root.isNarrow ? Qt.AlignLeft : Qt.AlignRight
+                        spacing: 8
                         Label {
                             text: qsTr("Daily goal:")
-                            font.pixelSize: 12
+                            font.pixelSize: 13
                             color: "#64748B"
                         }
-                        Button {
-                            text: "-"
-                            flat: true
-                            implicitWidth: 32
-                            implicitHeight: 32
+                        AbstractButton {
+                            id: goalMinusBtn
+                            padding: 0
+                            implicitWidth: 38
+                            implicitHeight: 38
                             onClicked: appController.dailyDistanceGoalMeters = Math.max(1000, appController.dailyDistanceGoalMeters - 500)
+                            background: Rectangle {
+                                radius: 10
+                                color: goalMinusBtn.pressed ? "#E2E8F0" : "#F8FAFC"
+                                border.width: 1
+                                border.color: "#CBD5E1"
+                            }
+                            contentItem: Label {
+                                text: "-"
+                                font.pixelSize: 18
+                                font.weight: Font.Bold
+                                color: "#0F172A"
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
                         }
                         Label {
                             text: appController.formatDistanceWithUnit(appController.dailyDistanceGoalMeters)
-                            font.pixelSize: 13
+                            font.pixelSize: 14
                             font.weight: Font.DemiBold
                             color: "#0F172A"
                         }
-                        Button {
-                            text: "+"
-                            flat: true
-                            implicitWidth: 32
-                            implicitHeight: 32
+                        AbstractButton {
+                            id: goalPlusBtn
+                            padding: 0
+                            implicitWidth: 38
+                            implicitHeight: 38
                             onClicked: appController.dailyDistanceGoalMeters = Math.min(50000, appController.dailyDistanceGoalMeters + 500)
+                            background: Rectangle {
+                                radius: 10
+                                color: goalPlusBtn.pressed ? "#E2E8F0" : "#F8FAFC"
+                                border.width: 1
+                                border.color: "#CBD5E1"
+                            }
+                            contentItem: Label {
+                                text: "+"
+                                font.pixelSize: 18
+                                font.weight: Font.Bold
+                                color: "#0F172A"
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
                         }
                     }
                 }
@@ -649,30 +772,66 @@ ScrollView {
 
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: 8
+                        spacing: 10
+
+                        Rectangle {
+                            width: 38
+                            height: 38
+                            radius: 10
+                            color: "#FEE2E2"
+                            FitIcon {
+                                anchors.centerIn: parent
+                                name: "heart"
+                                size: 20
+                                color: "#DC2626"
+                            }
+                        }
+
                         ColumnLayout {
                             Layout.fillWidth: true
                             spacing: 1
                             Label {
                                 text: qsTr("Heart Rate")
-                                font.pixelSize: 15
+                                font.pixelSize: 16
                                 font.weight: Font.Bold
                                 color: "#0F172A"
+                                Layout.fillWidth: true
+                                elide: Text.ElideRight
                             }
                             Label {
                                 text: appController.heartRateUpdatedAt
-                                font.pixelSize: 11
+                                font.pixelSize: 12
                                 color: "#64748B"
                             }
                         }
-                        Button {
-                            text: appController.isMeasuringHeartRate ? qsTr("Measuring...") : qsTr("Measure")
-                            highlighted: true
-                            Material.accent: "#DC2626"
-                            implicitHeight: 32
-                            font.pixelSize: 12
+
+                        AbstractButton {
+                            id: measureHrBtn
+                            padding: 0
                             enabled: appController.isConnected && !appController.isMeasuringHeartRate
+                            implicitHeight: 42
+                            implicitWidth: Math.max(122, measureHrRow.implicitWidth + 28)
                             onClicked: appController.measureHeartRate()
+                            background: Rectangle {
+                                radius: 10
+                                color: measureHrBtn.pressed ? "#B91C1C" : "#DC2626"
+                                opacity: measureHrBtn.enabled ? 1.0 : 0.45
+                            }
+                            contentItem: Item {
+                                Row {
+                                    id: measureHrRow
+                                    anchors.centerIn: parent
+                                    spacing: 7
+                                    FitIcon { anchors.verticalCenter: parent.verticalCenter; name: "heart"; size: 16; color: "#FFFFFF" }
+                                    Label {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: appController.isMeasuringHeartRate ? qsTr("Measuring...") : qsTr("Measure")
+                                        font.pixelSize: 14
+                                        font.weight: Font.DemiBold
+                                        color: "#FFFFFF"
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -765,30 +924,66 @@ ScrollView {
 
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: 8
+                        spacing: 10
+
+                        Rectangle {
+                            width: 38
+                            height: 38
+                            radius: 10
+                            color: "#DCFCE7"
+                            FitIcon {
+                                anchors.centerIn: parent
+                                name: "droplet"
+                                size: 20
+                                color: "#16A34A"
+                            }
+                        }
+
                         ColumnLayout {
                             Layout.fillWidth: true
                             spacing: 1
                             Label {
                                 text: qsTr("SpO2")
-                                font.pixelSize: 15
+                                font.pixelSize: 16
                                 font.weight: Font.Bold
                                 color: "#0F172A"
+                                Layout.fillWidth: true
+                                elide: Text.ElideRight
                             }
                             Label {
                                 text: appController.spo2UpdatedAt
-                                font.pixelSize: 11
+                                font.pixelSize: 12
                                 color: "#64748B"
                             }
                         }
-                        Button {
-                            text: appController.isMeasuringSpo2 ? qsTr("Measuring...") : qsTr("Measure")
-                            highlighted: true
-                            Material.accent: "#16A34A"
-                            implicitHeight: 32
-                            font.pixelSize: 12
+
+                        AbstractButton {
+                            id: measureSpo2Btn
+                            padding: 0
                             enabled: appController.isConnected && !appController.isMeasuringSpo2
+                            implicitHeight: 42
+                            implicitWidth: Math.max(122, measureSpo2Row.implicitWidth + 28)
                             onClicked: appController.measureSpo2()
+                            background: Rectangle {
+                                radius: 10
+                                color: measureSpo2Btn.pressed ? "#15803D" : "#16A34A"
+                                opacity: measureSpo2Btn.enabled ? 1.0 : 0.45
+                            }
+                            contentItem: Item {
+                                Row {
+                                    id: measureSpo2Row
+                                    anchors.centerIn: parent
+                                    spacing: 7
+                                    FitIcon { anchors.verticalCenter: parent.verticalCenter; name: "droplet"; size: 16; color: "#FFFFFF" }
+                                    Label {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: appController.isMeasuringSpo2 ? qsTr("Measuring...") : qsTr("Measure")
+                                        font.pixelSize: 14
+                                        font.weight: Font.DemiBold
+                                        color: "#FFFFFF"
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -884,30 +1079,66 @@ ScrollView {
 
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: 8
+                    spacing: 10
+
+                    Rectangle {
+                        width: 38
+                        height: 38
+                        radius: 10
+                        color: "#DBEAFE"
+                        FitIcon {
+                            anchors.centerIn: parent
+                            name: "gauge"
+                            size: 20
+                            color: "#2563EB"
+                        }
+                    }
+
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: 1
                         Label {
-                            text: qsTr("Blood Pressure (BP)")
-                            font.pixelSize: 15
+                            text: qsTr("Blood Pressure")
+                            font.pixelSize: 16
                             font.weight: Font.Bold
                             color: "#0F172A"
+                            Layout.fillWidth: true
+                            elide: Text.ElideRight
                         }
                         Label {
                             text: appController.bloodPressureUpdatedAt
-                            font.pixelSize: 11
+                            font.pixelSize: 12
                             color: "#64748B"
                         }
                     }
-                    Button {
-                        text: appController.isMeasuringBloodPressure ? qsTr("Measuring...") : qsTr("Measure")
-                        highlighted: true
-                        Material.accent: "#2563EB"
-                        implicitHeight: 32
-                        font.pixelSize: 12
+
+                    AbstractButton {
+                        id: measureBpBtn
+                        padding: 0
                         enabled: appController.isConnected && !appController.isMeasuringBloodPressure
+                        implicitHeight: 42
+                        implicitWidth: Math.max(122, measureBpRow.implicitWidth + 28)
                         onClicked: appController.measureBloodPressure()
+                        background: Rectangle {
+                            radius: 10
+                            color: measureBpBtn.pressed ? "#1D4ED8" : "#2563EB"
+                            opacity: measureBpBtn.enabled ? 1.0 : 0.45
+                        }
+                        contentItem: Item {
+                            Row {
+                                id: measureBpRow
+                                anchors.centerIn: parent
+                                spacing: 7
+                                FitIcon { anchors.verticalCenter: parent.verticalCenter; name: "gauge"; size: 16; color: "#FFFFFF" }
+                                Label {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: appController.isMeasuringBloodPressure ? qsTr("Measuring...") : qsTr("Measure")
+                                    font.pixelSize: 14
+                                    font.weight: Font.DemiBold
+                                    color: "#FFFFFF"
+                                }
+                            }
+                        }
                     }
                 }
 

@@ -60,6 +60,7 @@ qt_add_qml_module(fitlink
     QML_FILES
         qml/Main.qml
         qml/components/DeviceScanDialog.qml
+        qml/components/FitIcon.qml
         qml/views/OverviewView.qml
         qml/views/ActivityView.qml
         qml/views/TimeSyncView.qml

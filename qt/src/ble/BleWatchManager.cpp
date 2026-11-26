@@ -131,6 +131,10 @@ void BleWatchManager::setWriteDelayMs(int delayMs) {
     m_writeDelayMs = std::clamp(delayMs, 20, 200);
 }
 
+void BleWatchManager::setNotificationFormat(NotificationFormat format) {
+    m_notificationFormat = format;
+}
+
 QString BleWatchManager::deviceIdentifier(const QBluetoothDeviceInfo &info) {
 #if defined(Q_OS_DARWIN)
     return info.deviceUuid().toString();
@@ -986,15 +990,7 @@ bool BleWatchManager::enqueuePacket(const QByteArray &packet, const QString &act
         : QLowEnergyService::WriteWithoutResponse;
 
     const auto activeVersion = FeeaCodec::resolveVersion(m_detectedProtocol, m_protocolPref);
-    int effectiveMtu = m_mtuSize;
-    if (activeVersion == ProtocolVersion::V2 && m_controller) {
-        const int negotiatedMtu = m_controller->mtu();
-        if (negotiatedMtu > 23) {
-            effectiveMtu = std::clamp(negotiatedMtu - 3, m_mtuSize, 244);
-        }
-    }
-
-    const auto chunks = FeeaCodec::chunkPacket(packet, effectiveMtu);
+    const auto chunks = FeeaCodec::chunkPacket(packet, m_mtuSize);
     for (int i = 0; i < chunks.size(); ++i) {
         GattOp op;
         op.type = GattOp::Type::WriteChar;
@@ -1032,13 +1028,21 @@ bool BleWatchManager::sendTimeFormat(bool use24Hour) {
     return enqueuePacket(packet, use24Hour ? tr("Set 24h Format") : tr("Set 12h Format"));
 }
 
-bool BleWatchManager::sendNotification(WatchAppIcon icon, const QString &title, const QString &body) {
+bool BleWatchManager::sendNotification(WatchAppIcon icon,
+                                       const QString &title,
+                                       const QString &body,
+                                       int formatOverride) {
     const auto version = FeeaCodec::resolveVersion(m_detectedProtocol, m_protocolPref);
     const int maxTextBytes = FeeaCodec::maxNotificationTextBytes(
         version,
         m_deviceInfo.value(QStringLiteral("firmware")).toString()
     );
-    const QByteArray packet = FeeaCodec::encodeNotification(version, icon, title, body, maxTextBytes);
+    const auto activeFormat = (formatOverride >= 0 && formatOverride <= 5)
+        ? static_cast<NotificationFormat>(formatOverride)
+        : m_notificationFormat;
+    const QByteArray packet = FeeaCodec::encodeNotification(
+        version, icon, title, body, maxTextBytes, activeFormat
+    );
     return enqueuePacket(packet, tr("Push Notification"));
 }
 

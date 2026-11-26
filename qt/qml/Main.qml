@@ -21,11 +21,11 @@ ApplicationWindow {
     property int currentTab: 0
     readonly property bool isCompact: width < 768
     readonly property var navItems: [
-        { label: qsTr("Overview") },
-        { label: qsTr("Activity") },
-        { label: qsTr("Time Sync") },
-        { label: qsTr("Notifications") },
-        { label: qsTr("Device & Protocol") }
+        { label: qsTr("Overview"), shortLabel: qsTr("Overview"), icon: "overview" },
+        { label: qsTr("Activity"), shortLabel: qsTr("Activity"), icon: "activity" },
+        { label: qsTr("Time Sync"), shortLabel: qsTr("Time"), icon: "time" },
+        { label: qsTr("Notifications"), shortLabel: qsTr("Alerts"), icon: "alerts" },
+        { label: qsTr("Device & Protocol"), shortLabel: qsTr("Device"), icon: "device" }
     ]
 
     DeviceScanDialog {
@@ -95,12 +95,22 @@ ApplicationWindow {
                             radius: 10
                             color: window.currentTab === index ? "#EFF6FF" : (parent.hovered ? "#F8FAFC" : "transparent")
                         }
-                        contentItem: Label {
-                            text: parent.text
-                            color: window.currentTab === index ? "#2563EB" : "#475569"
-                            font: parent.font
-                            verticalAlignment: Text.AlignVCenter
-                            leftPadding: 12
+                        contentItem: RowLayout {
+                            spacing: 12
+                            Item { Layout.preferredWidth: 4 }
+                            FitIcon {
+                                name: modelData.icon
+                                size: 19
+                                color: window.currentTab === index ? "#2563EB" : "#64748B"
+                            }
+                            Label {
+                                text: modelData.label
+                                color: window.currentTab === index ? "#2563EB" : "#475569"
+                                font.pixelSize: 14
+                                font.weight: window.currentTab === index ? Font.DemiBold : Font.Medium
+                                verticalAlignment: Text.AlignVCenter
+                                Layout.fillWidth: true
+                            }
                         }
                     }
                 }
@@ -181,10 +191,11 @@ ApplicationWindow {
                         elide: Text.ElideRight
                     }
 
-                    Button {
-                        text: appController.isConnected ? qsTr("Disconnect") : qsTr("Connect Watch")
-                        highlighted: !appController.isConnected
-                        flat: appController.isConnected
+                    AbstractButton {
+                        id: connectActionBtn
+                        padding: 0
+                        implicitHeight: 40
+                        implicitWidth: connectBtnRow.implicitWidth + 28
                         onClicked: {
                             if (appController.isConnected) {
                                 appController.disconnectDevice()
@@ -192,6 +203,34 @@ ApplicationWindow {
                                 scanDialog.open()
                                 if (appController.bluetoothAvailable) {
                                     appController.startScan()
+                                }
+                            }
+                        }
+                        background: Rectangle {
+                            radius: 10
+                            color: appController.isConnected
+                                   ? (connectActionBtn.pressed ? "#F1F5F9" : "#FFFFFF")
+                                   : (connectActionBtn.pressed ? "#1D4ED8" : "#2563EB")
+                            border.width: appController.isConnected ? 1 : 0
+                            border.color: "#CBD5E1"
+                        }
+                        contentItem: Item {
+                            Row {
+                                id: connectBtnRow
+                                anchors.centerIn: parent
+                                spacing: 7
+                                FitIcon {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    name: "bluetooth"
+                                    size: 16
+                                    color: appController.isConnected ? "#475569" : "#FFFFFF"
+                                }
+                                Label {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: appController.isConnected ? qsTr("Disconnect") : qsTr("Connect Watch")
+                                    font.pixelSize: 13
+                                    font.weight: Font.DemiBold
+                                    color: appController.isConnected ? "#0F172A" : "#FFFFFF"
                                 }
                             }
                         }
@@ -252,18 +291,76 @@ ApplicationWindow {
                 DeviceProtocolView {}
             }
 
-            // Compact Bottom Navigation Bar (Android mobile screens)
-            TabBar {
+            // Compact Bottom Navigation Bar with icons + labels (Android mobile screens)
+            Rectangle {
                 visible: window.isCompact
                 Layout.fillWidth: true
-                currentIndex: window.currentTab
-                onCurrentIndexChanged: window.currentTab = currentIndex
+                Layout.preferredHeight: 68
+                color: "#FFFFFF"
 
-                TabButton { text: qsTr("Overview") }
-                TabButton { text: qsTr("Activity") }
-                TabButton { text: qsTr("Time") }
-                TabButton { text: qsTr("Alerts") }
-                TabButton { text: qsTr("Device") }
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    height: 1
+                    color: "#E2E8F0"
+                }
+
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: 4
+                    anchors.rightMargin: 4
+                    spacing: 0
+
+                    Repeater {
+                        model: window.navItems
+                        delegate: AbstractButton {
+                            id: bottomTabBtn
+                            required property int index
+                            required property var modelData
+                            readonly property bool isActive: window.currentTab === index
+
+                            padding: 0
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            onClicked: window.currentTab = index
+
+                            background: Item {}
+
+                            contentItem: Item {
+                                Column {
+                                    anchors.centerIn: parent
+                                    spacing: 4
+
+                                    Rectangle {
+                                        anchors.horizontalCenter: parent.horizontalCenter
+                                        width: 52
+                                        height: 30
+                                        radius: 15
+                                        color: bottomTabBtn.isActive
+                                               ? "#EFF6FF"
+                                               : (bottomTabBtn.pressed ? "#F1F5F9" : "transparent")
+
+                                        FitIcon {
+                                            anchors.centerIn: parent
+                                            name: modelData.icon
+                                            size: 20
+                                            color: bottomTabBtn.isActive ? "#2563EB" : "#64748B"
+                                        }
+                                    }
+
+                                    Label {
+                                        anchors.horizontalCenter: parent.horizontalCenter
+                                        text: modelData.shortLabel
+                                        font.pixelSize: 11
+                                        font.weight: bottomTabBtn.isActive ? Font.DemiBold : Font.Medium
+                                        color: bottomTabBtn.isActive ? "#2563EB" : "#64748B"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -276,7 +373,7 @@ ApplicationWindow {
         visible: false
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
-        anchors.bottomMargin: window.isCompact ? 72 : 24
+        anchors.bottomMargin: window.isCompact ? 80 : 24
         height: 44
         width: Math.min(parent.width - 32, toastLabel.implicitWidth + 36)
         radius: 10

@@ -67,6 +67,9 @@ public:
     int writeDelayMs() const { return m_writeDelayMs; }
     void setWriteDelayMs(int delayMs);
 
+    NotificationFormat notificationFormat() const { return m_notificationFormat; }
+    void setNotificationFormat(NotificationFormat format);
+
     QString deviceName() const { return m_deviceName; }
     QString deviceAddress() const { return m_deviceAddress; }
     int batteryLevel() const { return m_batteryLevel; }
@@ -80,7 +83,10 @@ public:
 
     bool sendSyncTime(const QDateTime &dateTime, int utcOffsetMinutes);
     bool sendTimeFormat(bool use24Hour);
-    bool sendNotification(WatchAppIcon icon, const QString &title, const QString &body);
+    bool sendNotification(WatchAppIcon icon,
+                          const QString &title,
+                          const QString &body,
+                          int formatOverride = -1);
     bool sendFindWatch();
     void refreshBattery();
     bool requestHealthSync();
@@ -162,6 +168,7 @@ private:
     ProtocolPreference m_protocolPref = ProtocolPreference::Auto;
     int m_mtuSize = 20;
     int m_writeDelayMs = 50;
+    NotificationFormat m_notificationFormat = NotificationFormat::Standard;
 
     QBluetoothDeviceDiscoveryAgent *m_discoveryAgent = nullptr;
     QList<QBluetoothDeviceInfo> m_discoveredDevices;

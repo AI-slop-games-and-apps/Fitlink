@@ -272,13 +272,48 @@ static QByteArray truncateUtf8(const QString &input, int maxBytes) {
     return utf8.left(len);
 }
 
+static QByteArray encodeUtf16Le(const QString &input, int maxBytes) {
+    const int safeMax = std::max(2, maxBytes - (maxBytes % 2));
+    const int codeUnits = std::min<int>(input.size(), safeMax / 2);
+    QByteArray out;
+    out.reserve(codeUnits * 2);
+    for (int i = 0; i < codeUnits; ++i) {
+        const uint16_t u = input.at(i).unicode();
+        out.append(static_cast<char>(u & 0xFF));
+        out.append(static_cast<char>((u >> 8) & 0xFF));
+    }
+    return out;
+}
+
 QByteArray FeeaCodec::encodeNotification(ProtocolVersion version,
                                          WatchAppIcon icon,
                                          const QString &title,
                                          const QString &body,
-                                         int maxUtf8Bytes) {
+                                         int maxUtf8Bytes,
+                                         NotificationFormat format) {
+    const int clampedMax = std::clamp(maxUtf8Bytes, 16, 240);
+    // Clamp icon IDs above 0x0C to 0x0C (Other/Generic) so firmware with 0x00..0x0C icon tables accepts them.
+    const uint8_t rawIcon = static_cast<uint8_t>(icon);
+    const uint8_t wireIcon = (rawIcon <= 0x0C) ? rawIcon : 0x0C;
+
     const QString trimmedTitle = title.trimmed();
     const QString trimmedBody = body.trimmed();
+
+    if (format == NotificationFormat::SplitTitle) {
+        const QString effectiveTitle = trimmedTitle.isEmpty() ? QStringLiteral("Alert") : trimmedTitle;
+        const QByteArray titleBytes = truncateUtf8(effectiveTitle, std::min(48, clampedMax - 4));
+        const int remaining = std::max(0, clampedMax - titleBytes.size() - 2);
+        const QByteArray bodyBytes = trimmedBody.isEmpty() ? QByteArray() : truncateUtf8(trimmedBody, remaining);
+        QByteArray payload;
+        payload.reserve(1 + titleBytes.size() + 1 + bodyBytes.size() + 1);
+        payload.append(static_cast<char>(wireIcon));
+        payload.append(titleBytes);
+        payload.append('\0');
+        payload.append(bodyBytes);
+        payload.append('\0');
+        return framePacket(version, CmdPushNotification, payload);
+    }
+
     QString formatted;
     if (!trimmedTitle.isEmpty() && !trimmedBody.isEmpty()) {
         formatted = trimmedTitle + QStringLiteral(": ") + trimmedBody;
@@ -288,16 +323,44 @@ QByteArray FeeaCodec::encodeNotification(ProtocolVersion version,
         formatted = trimmedBody;
     }
 
-    const QByteArray textBytes = truncateUtf8(formatted, std::clamp(maxUtf8Bytes, 16, 240));
-    // Clamp icon IDs above 0x0C to 0x0C (Other/Generic) so firmware with 0x00..0x0C icon tables accepts them.
-    const uint8_t rawIcon = static_cast<uint8_t>(icon);
-    const uint8_t wireIcon = (rawIcon <= 0x0C) ? rawIcon : 0x0C;
+    if (format == NotificationFormat::Utf16Le) {
+        const QByteArray u16 = encodeUtf16Le(formatted, clampedMax);
+        QByteArray payload;
+        payload.reserve(1 + u16.size());
+        payload.append(static_cast<char>(wireIcon));
+        payload.append(u16);
+        return framePacket(version, CmdPushNotification, payload);
+    }
 
-    // 0xFEEA 0x64 notification payload: [iconId (1B)] [UTF-8 text bytes...] (total length is already in header bytes 2..3)
+    const QByteArray textBytes = truncateUtf8(formatted, clampedMax);
     QByteArray payload;
-    payload.reserve(1 + textBytes.size());
-    payload.append(static_cast<char>(wireIcon));
-    payload.append(textBytes);
+
+    switch (format) {
+    case NotificationFormat::NulTerminated:
+        payload.reserve(2 + textBytes.size());
+        payload.append(static_cast<char>(wireIcon));
+        payload.append(textBytes);
+        payload.append('\0');
+        break;
+    case NotificationFormat::V2Header:
+        payload.reserve(2 + textBytes.size());
+        payload.append(static_cast<char>(wireIcon));
+        payload.append('\0');
+        payload.append(textBytes);
+        break;
+    case NotificationFormat::LengthPrefixed:
+        payload.reserve(2 + textBytes.size());
+        payload.append(static_cast<char>(wireIcon));
+        payload.append(static_cast<char>(textBytes.size() & 0xFF));
+        payload.append(textBytes);
+        break;
+    case NotificationFormat::Standard:
+    default:
+        payload.reserve(1 + textBytes.size());
+        payload.append(static_cast<char>(wireIcon));
+        payload.append(textBytes);
+        break;
+    }
 
     return framePacket(version, CmdPushNotification, payload);
 }

@@ -43,6 +43,7 @@ class AppController : public QObject {
     Q_PROPERTY(bool osBridgeAvailable READ osBridgeAvailable NOTIFY mirroringChanged)
     Q_PROPERTY(bool osBridgeHasPermission READ osBridgeHasPermission NOTIFY mirroringChanged)
     Q_PROPERTY(bool osMirroringEnabled READ osMirroringEnabled WRITE setOsMirroringEnabled NOTIFY mirroringChanged)
+    Q_PROPERTY(int notificationFormat READ notificationFormat WRITE setNotificationFormat NOTIFY notificationFormatChanged)
     Q_PROPERTY(QVariantList appFilters READ appFilters NOTIFY appFiltersChanged)
 
     Q_PROPERTY(QVariantList templates READ templates NOTIFY templatesChanged)
@@ -108,6 +109,8 @@ public:
     bool osBridgeHasPermission() const;
     bool osMirroringEnabled() const;
     void setOsMirroringEnabled(bool enabled);
+    int notificationFormat() const;
+    void setNotificationFormat(int format);
     QVariantList appFilters() const { return m_appFilters; }
 
     QVariantList templates() const { return m_templates; }
@@ -152,6 +155,7 @@ public:
 
     // Notification actions
     Q_INVOKABLE void sendManualNotification(int iconId, const QString &title, const QString &body);
+    Q_INVOKABLE void testAllNotificationFormats(int iconId, const QString &title, const QString &body);
     Q_INVOKABLE int utf8ByteLength(const QString &title, const QString &body) const;
     Q_INVOKABLE int estimatedChunkCount(const QString &title, const QString &body) const;
 
@@ -194,6 +198,7 @@ signals:
     void protocolChanged();
     void timeSettingsChanged();
     void mirroringChanged();
+    void notificationFormatChanged();
     void appFiltersChanged();
     void templatesChanged();
     void scheduledAlertsChanged();

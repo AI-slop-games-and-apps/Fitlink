@@ -1,6 +1,53 @@
 export type ProtocolVersion = 'unknown' | 'v1' | 'v2';
 export type ProtocolPreference = 'auto' | 'v2' | 'v1';
 
+export type NotificationFormat =
+  | 'standard'
+  | 'nul'
+  | 'v2_header'
+  | 'split_title'
+  | 'length_prefixed'
+  | 'utf16le';
+
+export interface NotificationFormatOption {
+  id: NotificationFormat;
+  label: string;
+  description: string;
+}
+
+export const NOTIFICATION_FORMAT_OPTIONS: NotificationFormatOption[] = [
+  {
+    id: 'standard',
+    label: '0x64 Standard UTF-8 (Default)',
+    description: '[icon] [UTF-8 text]',
+  },
+  {
+    id: 'nul',
+    label: '0x64 Null-Terminated UTF-8',
+    description: '[icon] [UTF-8 text] [0x00]',
+  },
+  {
+    id: 'v2_header',
+    label: '0x64 V2 Flag Header',
+    description: '[icon] [0x00] [UTF-8 text]',
+  },
+  {
+    id: 'split_title',
+    label: '0x64 Split Title / Body',
+    description: '[icon] [title] [0x00] [body] [0x00]',
+  },
+  {
+    id: 'length_prefixed',
+    label: '0x64 Length-Prefixed UTF-8',
+    description: '[icon] [len] [UTF-8 text]',
+  },
+  {
+    id: 'utf16le',
+    label: '0x64 UTF-16LE Unicode',
+    description: '[icon] [UTF-16LE text]',
+  },
+];
+
 export interface WatchAppPreset {
   id: number;
   key: string;
@@ -255,15 +302,35 @@ export function truncateUtf8(input: string, maxBytes: number): Uint8Array {
   return bytes.slice(0, len);
 }
 
+function encodeUtf16Le(input: string, maxBytes: number): Uint8Array {
+  const safeMax = Math.max(2, maxBytes - (maxBytes % 2));
+  const codeUnits = Math.min(input.length, Math.floor(safeMax / 2));
+  const out = new Uint8Array(codeUnits * 2);
+  for (let i = 0; i < codeUnits; i += 1) {
+    const unit = input.charCodeAt(i);
+    out[i * 2] = unit & 0xff;
+    out[i * 2 + 1] = (unit >> 8) & 0xff;
+  }
+  return out;
+}
+
 export function getNotificationMetrics(
   title: string,
   body: string,
-  mtuSize: number
+  mtuSize: number,
+  format: NotificationFormat = 'standard'
 ): { utf8Bytes: number; truncatedBytes: number; chunks: number } {
   const formatted = formatNotificationText(title, body);
-  const fullBytes = textEncoder.encode(formatted).length;
+  const fullBytes =
+    format === 'utf16le' ? formatted.length * 2 : textEncoder.encode(formatted).length;
   const capped = Math.min(128, fullBytes);
-  const frameSize = 6 + capped;
+  const extraOverhead =
+    format === 'standard' || format === 'utf16le'
+      ? 0
+      : format === 'split_title'
+      ? 2
+      : 1;
+  const frameSize = 6 + extraOverhead + capped;
   const safeMtu = Math.max(20, mtuSize);
   return {
     utf8Bytes: fullBytes,
@@ -277,14 +344,69 @@ export function encodeNotification(
   iconId: number,
   title: string,
   body: string,
-  maxUtf8Bytes = 128
+  maxUtf8Bytes = 128,
+  format: NotificationFormat = 'standard'
 ): Uint8Array {
-  const textBytes = truncateUtf8(formatNotificationText(title, body), Math.max(16, Math.min(240, maxUtf8Bytes)));
+  const clampedMax = Math.max(16, Math.min(240, maxUtf8Bytes));
   // Clamp icon IDs above 0x0C to 0x0C (Other/Generic) so watches with 0x00..0x0C icon tables accept them.
   const rawIcon = iconId & 0xff;
   const wireIcon = rawIcon <= 0x0c ? rawIcon : 0x0c;
 
-  // 0xFEEA 0x64 notification payload: [iconId (1B)] [UTF-8 text bytes...] (total length is already in header bytes 2..3)
+  if (format === 'split_title') {
+    const titleStr = title.trim() || 'Alert';
+    const bodyStr = body.trim();
+    const titleBytes = truncateUtf8(titleStr, Math.min(48, clampedMax - 4));
+    const remaining = Math.max(0, clampedMax - titleBytes.length - 2);
+    const bodyBytes = bodyStr ? truncateUtf8(bodyStr, remaining) : new Uint8Array(0);
+    const payload = new Uint8Array(1 + titleBytes.length + 1 + bodyBytes.length + 1);
+    let idx = 0;
+    payload[idx++] = wireIcon;
+    payload.set(titleBytes, idx);
+    idx += titleBytes.length;
+    payload[idx++] = 0x00;
+    payload.set(bodyBytes, idx);
+    idx += bodyBytes.length;
+    payload[idx] = 0x00;
+    return framePacket(version, FEEA_CMD.PUSH_NOTIFICATION, payload);
+  }
+
+  const formatted = formatNotificationText(title, body);
+
+  if (format === 'utf16le') {
+    const u16 = encodeUtf16Le(formatted, clampedMax);
+    const payload = new Uint8Array(1 + u16.length);
+    payload[0] = wireIcon;
+    payload.set(u16, 1);
+    return framePacket(version, FEEA_CMD.PUSH_NOTIFICATION, payload);
+  }
+
+  const textBytes = truncateUtf8(formatted, clampedMax);
+
+  if (format === 'nul') {
+    const payload = new Uint8Array(1 + textBytes.length + 1);
+    payload[0] = wireIcon;
+    payload.set(textBytes, 1);
+    payload[1 + textBytes.length] = 0x00;
+    return framePacket(version, FEEA_CMD.PUSH_NOTIFICATION, payload);
+  }
+
+  if (format === 'v2_header') {
+    const payload = new Uint8Array(2 + textBytes.length);
+    payload[0] = wireIcon;
+    payload[1] = 0x00;
+    payload.set(textBytes, 2);
+    return framePacket(version, FEEA_CMD.PUSH_NOTIFICATION, payload);
+  }
+
+  if (format === 'length_prefixed') {
+    const payload = new Uint8Array(2 + textBytes.length);
+    payload[0] = wireIcon;
+    payload[1] = textBytes.length & 0xff;
+    payload.set(textBytes, 2);
+    return framePacket(version, FEEA_CMD.PUSH_NOTIFICATION, payload);
+  }
+
+  // Default 0xFEEA 0x64 notification payload: [iconId (1B)] [UTF-8 text bytes...]
   const payload = new Uint8Array(1 + textBytes.length);
   payload[0] = wireIcon;
   payload.set(textBytes, 1);

@@ -19,6 +19,15 @@ ColumnLayout {
         { id: 15, label: "Generic App" }
     ]
 
+    readonly property var formatOptions: [
+        "0x64 Standard UTF-8 (Default)",
+        "0x64 Null-Terminated UTF-8",
+        "0x64 V2 Flag Header [icon, 0x00, text]",
+        "0x64 Split Title / Body",
+        "0x64 Length-Prefixed UTF-8",
+        "0x64 UTF-16LE Unicode"
+    ]
+
     TabBar {
         id: subTabs
         Layout.fillWidth: true
@@ -185,7 +194,7 @@ ColumnLayout {
                             Layout.fillWidth: true
                             textRole: "label"
                             model: root.appIcons
-                            currentIndex: 2 // WhatsApp default
+                            currentIndex: 1 // SMS default
                         }
 
                         TextField {
@@ -202,6 +211,16 @@ ColumnLayout {
                             wrapMode: TextArea.Wrap
                         }
 
+                        ComboBox {
+                            id: formatSelector
+                            Layout.fillWidth: true
+                            model: root.formatOptions
+                            currentIndex: appController.notificationFormat
+                            onActivated: function(index) {
+                                appController.notificationFormat = index
+                            }
+                        }
+
                         Label {
                             text: qsTr("%1 / 128 UTF-8 bytes · %2 BLE chunk(s)")
                                   .arg(appController.utf8ByteLength(titleInput.text, bodyInput.text))
@@ -210,8 +229,9 @@ ColumnLayout {
                             color: "#64748B"
                         }
 
-                        RowLayout {
-                            spacing: 12
+                        Flow {
+                            Layout.fillWidth: true
+                            spacing: 10
                             Button {
                                 text: qsTr("Send to Watch")
                                 highlighted: true
@@ -219,6 +239,19 @@ ColumnLayout {
                                 onClicked: {
                                     var iconId = root.appIcons[iconSelector.currentIndex].id
                                     appController.sendManualNotification(iconId, titleInput.text, bodyInput.text)
+                                }
+                            }
+                            Button {
+                                text: qsTr("Send Quick Test")
+                                enabled: appController.isConnected
+                                onClicked: appController.sendManualNotification(1, "FitLink", "Hi")
+                            }
+                            Button {
+                                text: qsTr("Test All Formats")
+                                enabled: appController.isConnected
+                                onClicked: {
+                                    var iconId = root.appIcons[iconSelector.currentIndex].id
+                                    appController.testAllNotificationFormats(iconId, titleInput.text, bodyInput.text)
                                 }
                             }
                             Button {
