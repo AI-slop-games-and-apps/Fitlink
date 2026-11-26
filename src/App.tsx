@@ -1030,7 +1030,7 @@ export default function App() {
   return (
     <div className="flex min-h-screen bg-[#F5F7FA] text-[#0F172A]">
       {/* Desktop / Tablet Material Navigation Rail (Debian amd64 / arm64) */}
-      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-[#E2E8F0] bg-white md:flex">
+      <aside className="fixed inset-y-0 left-0 z-40 hidden w-60 flex-col border-r border-[#E2E8F0] bg-white md:flex">
         <div className="flex h-16 shrink-0 items-center px-6">
           <span className="font-[family-name:var(--font-display)] text-xl font-bold tracking-tight text-[#0F172A] whitespace-nowrap">
             FitLink
@@ -1059,7 +1059,7 @@ export default function App() {
           })}
         </nav>
 
-        <div className="border-t border-[#E2E8F0] p-4">
+        <div className="shrink-0 border-t border-[#E2E8F0] p-4">
           <div className="truncate text-sm font-semibold text-[#0F172A]">
             {watch.isConnected ? watch.deviceName : 'No watch paired'}
           </div>
@@ -1076,7 +1076,7 @@ export default function App() {
       </aside>
 
       {/* Main Workspace Column */}
-      <div className="flex min-w-0 flex-1 flex-col pb-16 md:pb-0">
+      <div className="flex min-w-0 flex-1 flex-col pb-16 md:pb-0 md:pl-60">
         {/* Single-row Top App Bar */}
         <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-8 border-b border-[#E2E8F0] bg-white px-4 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-3">
