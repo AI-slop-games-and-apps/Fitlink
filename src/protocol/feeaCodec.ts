@@ -3,9 +3,11 @@ export type ProtocolPreference = 'auto' | 'v2' | 'v1';
 
 export type NotificationFormat =
   | 'standard'
-  | 'nul'
+  | 'v2_version_01'
   | 'v2_header'
+  | 'split_len'
   | 'split_title'
+  | 'nul'
   | 'length_prefixed'
   | 'utf16le';
 
@@ -18,32 +20,42 @@ export interface NotificationFormatOption {
 export const NOTIFICATION_FORMAT_OPTIONS: NotificationFormatOption[] = [
   {
     id: 'standard',
-    label: '0x64 Standard UTF-8 (Default)',
+    label: '1. Standard UTF-8 (Default)',
     description: '[icon] [UTF-8 text]',
   },
   {
-    id: 'nul',
-    label: '0x64 Null-Terminated UTF-8',
-    description: '[icon] [UTF-8 text] [0x00]',
+    id: 'v2_version_01',
+    label: '2. V2 Version Flag 0x01',
+    description: '[icon] [0x01] [UTF-8 text]',
   },
   {
     id: 'v2_header',
-    label: '0x64 V2 Flag Header',
+    label: '3. V2 Flag Header 0x00',
     description: '[icon] [0x00] [UTF-8 text]',
   },
   {
+    id: 'split_len',
+    label: '4. Split Length-Prefixed',
+    description: '[icon] [tLen] [title] [bLen] [body]',
+  },
+  {
     id: 'split_title',
-    label: '0x64 Split Title / Body',
+    label: '5. Split NUL Title / Body',
     description: '[icon] [title] [0x00] [body] [0x00]',
   },
   {
+    id: 'nul',
+    label: '6. Null-Terminated UTF-8',
+    description: '[icon] [UTF-8 text] [0x00]',
+  },
+  {
     id: 'length_prefixed',
-    label: '0x64 Length-Prefixed UTF-8',
+    label: '7. Length-Prefixed UTF-8',
     description: '[icon] [len] [UTF-8 text]',
   },
   {
     id: 'utf16le',
-    label: '0x64 UTF-16LE Unicode',
+    label: '8. UTF-16LE Unicode',
     description: '[icon] [UTF-16LE text]',
   },
 ];
@@ -64,6 +76,7 @@ export const WATCH_APP_PRESETS: WatchAppPreset[] = [
   { id: 0x0d, key: 'slack', label: 'Slack' },
   { id: 0x08, key: 'instagram', label: 'Instagram' },
   { id: 0x0f, key: 'generic', label: 'Generic App' },
+  { id: 0xff, key: 'other_all', label: 'All / Other' },
 ];
 
 export const GATT_UUIDS = {
@@ -81,6 +94,8 @@ export const GATT_UUIDS = {
   CHAR_HARDWARE_REV: 0x2a27,
   SERVICE_IMMEDIATE_ALERT: 0x1802,
   CHAR_ALERT_LEVEL: 0x2a06,
+  SERVICE_ALERT_NOTIFICATION: 0x1811,
+  CHAR_NEW_ALERT: 0x2a46,
   SERVICE_HEART_RATE: 0x180d,
   CHAR_HEART_RATE_MEASUREMENT: 0x2a37,
   SERVICE_PULSE_OXIMETER: 0x1822,
@@ -327,7 +342,7 @@ export function getNotificationMetrics(
   const extraOverhead =
     format === 'standard' || format === 'utf16le'
       ? 0
-      : format === 'split_title'
+      : format === 'split_title' || format === 'split_len'
       ? 2
       : 1;
   const frameSize = 6 + extraOverhead + capped;
@@ -348,9 +363,24 @@ export function encodeNotification(
   format: NotificationFormat = 'standard'
 ): Uint8Array {
   const clampedMax = Math.max(16, Math.min(240, maxUtf8Bytes));
-  // Clamp icon IDs above 0x0C to 0x0C (Other/Generic) so watches with 0x00..0x0C icon tables accept them.
-  const rawIcon = iconId & 0xff;
-  const wireIcon = rawIcon <= 0x0c ? rawIcon : 0x0c;
+  const wireIcon = iconId & 0xff;
+
+  if (format === 'split_len') {
+    const titleStr = title.trim() || 'Alert';
+    const bodyStr = body.trim();
+    const titleBytes = truncateUtf8(titleStr, Math.min(48, clampedMax - 4));
+    const remaining = Math.max(0, clampedMax - titleBytes.length - 2);
+    const bodyBytes = bodyStr ? truncateUtf8(bodyStr, remaining) : new Uint8Array(0);
+    const payload = new Uint8Array(1 + 1 + titleBytes.length + 1 + bodyBytes.length);
+    let idx = 0;
+    payload[idx++] = wireIcon;
+    payload[idx++] = titleBytes.length & 0xff;
+    payload.set(titleBytes, idx);
+    idx += titleBytes.length;
+    payload[idx++] = bodyBytes.length & 0xff;
+    payload.set(bodyBytes, idx);
+    return framePacket(version, FEEA_CMD.PUSH_NOTIFICATION, payload);
+  }
 
   if (format === 'split_title') {
     const titleStr = title.trim() || 'Alert';
@@ -382,6 +412,14 @@ export function encodeNotification(
 
   const textBytes = truncateUtf8(formatted, clampedMax);
 
+  if (format === 'v2_version_01') {
+    const payload = new Uint8Array(2 + textBytes.length);
+    payload[0] = wireIcon;
+    payload[1] = 0x01;
+    payload.set(textBytes, 2);
+    return framePacket(version, FEEA_CMD.PUSH_NOTIFICATION, payload);
+  }
+
   if (format === 'nul') {
     const payload = new Uint8Array(1 + textBytes.length + 1);
     payload[0] = wireIcon;
@@ -411,6 +449,28 @@ export function encodeNotification(
   payload[0] = wireIcon;
   payload.set(textBytes, 1);
   return framePacket(version, FEEA_CMD.PUSH_NOTIFICATION, payload);
+}
+
+export function encodeStandardNewAlert(
+  iconId: number,
+  title: string,
+  body: string
+): Uint8Array {
+  // Standard Bluetooth SIG Alert Notification Service (0x1811 / 0x2A46 New Alert):
+  // [Category ID (1B)] [Number of New Alerts (1B)] [UTF-8 Text <= 18 bytes]
+  let categoryId = 0x00; // Simple Alert
+  if (iconId === 0x00) categoryId = 0x03; // Call
+  else if (iconId === 0x01) categoryId = 0x05; // SMS / MMS
+  else if (iconId === 0x0b) categoryId = 0x01; // Email
+  else if (iconId === 0x0e) categoryId = 0x07; // Schedule
+
+  const text = formatNotificationText(title, body) || 'Alert';
+  const textBytes = truncateUtf8(text, 18);
+  const out = new Uint8Array(2 + textBytes.length);
+  out[0] = categoryId;
+  out[1] = 0x01;
+  out.set(textBytes, 2);
+  return out;
 }
 
 export function encodeFindWatch(version: 'v1' | 'v2'): Uint8Array {

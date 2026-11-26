@@ -23,11 +23,13 @@ enum class ProtocolPreference {
 
 enum class NotificationFormat {
     Standard = 0,       // [icon] [UTF-8 text]
-    NulTerminated = 1,  // [icon] [UTF-8 text] [0x00]
+    V2Version01 = 1,    // [icon] [0x01] [UTF-8 text]
     V2Header = 2,       // [icon] [0x00] [UTF-8 text]
-    SplitTitle = 3,     // [icon] [title] [0x00] [body] [0x00]
-    LengthPrefixed = 4, // [icon] [len] [UTF-8 text]
-    Utf16Le = 5         // [icon] [UTF-16LE text]
+    SplitLen = 3,       // [icon] [titleLen] [title] [bodyLen] [body]
+    SplitTitle = 4,     // [icon] [title] [0x00] [body] [0x00]
+    NulTerminated = 5,  // [icon] [UTF-8 text] [0x00]
+    LengthPrefixed = 6, // [icon] [len] [UTF-8 text]
+    Utf16Le = 7         // [icon] [UTF-16LE text]
 };
 
 // Standard 0xFEEA BLE notification source icon IDs
@@ -47,7 +49,8 @@ enum class WatchAppIcon : uint8_t {
     Telegram     = 0x0C,
     Slack        = 0x0D,
     Calendar     = 0x0E,
-    GenericOther = 0x0F
+    GenericOther = 0x0F,
+    OtherAll     = 0xFF
 };
 
 namespace GattUuids {
@@ -75,6 +78,9 @@ inline const QBluetoothUuid CharHeartRateMeasurement(QBluetoothUuid::Characteris
 inline const QBluetoothUuid ServicePulseOximeter(static_cast<uint16_t>(0x1822));
 inline const QBluetoothUuid CharPlxSpotCheck(static_cast<uint16_t>(0x2A5E));
 inline const QBluetoothUuid CharPlxContinuous(static_cast<uint16_t>(0x2A5F));
+
+inline const QBluetoothUuid ServiceAlertNotification(static_cast<uint16_t>(0x1811));
+inline const QBluetoothUuid CharNewAlert(static_cast<uint16_t>(0x2A46));
 } // namespace GattUuids
 
 struct ParsedHealthPacket {
@@ -147,6 +153,9 @@ public:
                                          const QString &body,
                                          int maxUtf8Bytes = 128,
                                          NotificationFormat format = NotificationFormat::Standard);
+    static QByteArray encodeStandardNewAlert(WatchAppIcon icon,
+                                             const QString &title,
+                                             const QString &body);
     static QByteArray encodeFindWatch(ProtocolVersion version);
     static QByteArray encodeGetTodayActivity(ProtocolVersion version);
     static QByteArray encodeMeasureHeartRate(ProtocolVersion version);

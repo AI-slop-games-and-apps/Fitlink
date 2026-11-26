@@ -83,6 +83,7 @@ export class WebBleWatchSession {
   private dataOutChar: WebBleCharacteristic | null = null;
   private batteryChar: WebBleCharacteristic | null = null;
   private alertLevelChar: WebBleCharacteristic | null = null;
+  private newAlertChar: WebBleCharacteristic | null = null;
   private rxBuffer: Uint8Array = new Uint8Array(0);
   private rxExpectedLen = 0;
   private virtual = false;
@@ -98,6 +99,10 @@ export class WebBleWatchSession {
 
   get isVirtual(): boolean {
     return this.virtual;
+  }
+
+  get hasAlertNotificationService(): boolean {
+    return this.newAlertChar !== null;
   }
 
   async connectVirtual(modelVariant: 'v2' | 'v1' = 'v2'): Promise<BleConnectionResult> {
@@ -144,6 +149,7 @@ export class WebBleWatchSession {
       GATT_UUIDS.SERVICE_BATTERY,
       GATT_UUIDS.SERVICE_DEVICE_INFO,
       GATT_UUIDS.SERVICE_IMMEDIATE_ALERT,
+      GATT_UUIDS.SERVICE_ALERT_NOTIFICATION,
       GATT_UUIDS.SERVICE_HEART_RATE,
       GATT_UUIDS.SERVICE_PULSE_OXIMETER,
     ];
@@ -285,6 +291,14 @@ export class WebBleWatchSession {
       // Optional
     }
 
+    // 4b. Optional standard Alert Notification Service (0x1811 / 0x2A46 New Alert)
+    try {
+      const ansSvc = await gatt.getPrimaryService(GATT_UUIDS.SERVICE_ALERT_NOTIFICATION);
+      this.newAlertChar = await ansSvc.getCharacteristic(GATT_UUIDS.CHAR_NEW_ALERT);
+    } catch {
+      this.newAlertChar = null;
+    }
+
     // 5. Optional standard Heart Rate Service (0x180D)
     try {
       const hrSvc = await gatt.getPrimaryService(GATT_UUIDS.SERVICE_HEART_RATE);
@@ -347,7 +361,8 @@ export class WebBleWatchSession {
   async writePacket(
     packet: Uint8Array,
     mtuSize: number,
-    writeDelayMs: number
+    writeDelayMs: number,
+    preferWriteNoResponse = false
   ): Promise<{ chunks: number; ackHex?: string }> {
     const chunks = chunkPacket(packet, mtuSize);
 
@@ -428,6 +443,22 @@ export class WebBleWatchSession {
       if (!this.dataOutChar) {
         throw new Error('0xFEE2 write characteristic is unavailable.');
       }
+      if (
+        preferWriteNoResponse &&
+        this.dataOutChar.properties.writeWithoutResponse &&
+        this.dataOutChar.writeValueWithoutResponse
+      ) {
+        try {
+          await this.dataOutChar.writeValueWithoutResponse(data);
+          return;
+        } catch (err) {
+          if (this.dataOutChar.properties.write && this.dataOutChar.writeValueWithResponse) {
+            await this.dataOutChar.writeValueWithResponse(data);
+            return;
+          }
+          throw err;
+        }
+      }
       // Prefer write-with-response when supported; fall back to write-without-response if rejected.
       if (this.dataOutChar.properties.write && this.dataOutChar.writeValueWithResponse) {
         try {
@@ -467,6 +498,30 @@ export class WebBleWatchSession {
     }
 
     return { chunks: chunks.length };
+  }
+
+  async sendStandardNewAlert(payload: Uint8Array): Promise<boolean> {
+    if (this.virtual || !this.newAlertChar || !this.gatt?.connected) return false;
+    try {
+      if (this.newAlertChar.properties.write && this.newAlertChar.writeValueWithResponse) {
+        await this.newAlertChar.writeValueWithResponse(payload);
+        return true;
+      }
+      if (
+        this.newAlertChar.properties.writeWithoutResponse &&
+        this.newAlertChar.writeValueWithoutResponse
+      ) {
+        await this.newAlertChar.writeValueWithoutResponse(payload);
+        return true;
+      }
+      if (this.newAlertChar.writeValue) {
+        await this.newAlertChar.writeValue(payload);
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
   }
 
   async triggerImmediateAlert(): Promise<void> {
@@ -584,6 +639,7 @@ export class WebBleWatchSession {
     this.dataOutChar = null;
     this.batteryChar = null;
     this.alertLevelChar = null;
+    this.newAlertChar = null;
     this.rxBuffer = new Uint8Array(0);
     this.rxExpectedLen = 0;
   }

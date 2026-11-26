@@ -70,6 +70,11 @@ public:
     NotificationFormat notificationFormat() const { return m_notificationFormat; }
     void setNotificationFormat(NotificationFormat format);
 
+    bool preferWriteNoResponse() const { return m_preferWriteNoResponse; }
+    void setPreferWriteNoResponse(bool prefer);
+
+    bool hasAlertNotificationService() const { return m_alertNotificationService != nullptr && m_newAlertChar.isValid(); }
+
     QString deviceName() const { return m_deviceName; }
     QString deviceAddress() const { return m_deviceAddress; }
     int batteryLevel() const { return m_batteryLevel; }
@@ -122,6 +127,7 @@ private slots:
     void onControllerConnected();
     void onControllerDisconnected();
     void onControllerError(QLowEnergyController::Error error);
+    void onControllerMtuChanged(int mtu);
     void onServiceDiscovered(const QBluetoothUuid &serviceUuid);
     void onServiceDiscoveryFinished();
 
@@ -131,6 +137,7 @@ private slots:
     void onImmediateAlertServiceStateChanged(QLowEnergyService::ServiceState newState);
     void onHeartRateServiceStateChanged(QLowEnergyService::ServiceState newState);
     void onPulseOximeterServiceStateChanged(QLowEnergyService::ServiceState newState);
+    void onAlertNotificationServiceStateChanged(QLowEnergyService::ServiceState newState);
 
     void onCharacteristicChanged(const QLowEnergyCharacteristic &characteristic, const QByteArray &value);
     void onCharacteristicRead(const QLowEnergyCharacteristic &characteristic, const QByteArray &value);
@@ -169,6 +176,7 @@ private:
     int m_mtuSize = 20;
     int m_writeDelayMs = 50;
     NotificationFormat m_notificationFormat = NotificationFormat::Standard;
+    bool m_preferWriteNoResponse = false;
 
     QBluetoothDeviceDiscoveryAgent *m_discoveryAgent = nullptr;
     QList<QBluetoothDeviceInfo> m_discoveredDevices;
@@ -181,6 +189,7 @@ private:
     QLowEnergyService *m_immediateAlertService = nullptr;
     QLowEnergyService *m_heartRateService = nullptr;
     QLowEnergyService *m_pulseOximeterService = nullptr;
+    QLowEnergyService *m_alertNotificationService = nullptr;
 
     QLowEnergyCharacteristic m_activityChar;
     QLowEnergyCharacteristic m_dataOutChar;
@@ -189,6 +198,7 @@ private:
     QLowEnergyCharacteristic m_alertLevelChar;
     QLowEnergyCharacteristic m_heartRateChar;
     QLowEnergyCharacteristic m_spo2Char;
+    QLowEnergyCharacteristic m_newAlertChar;
 
     QString m_deviceName;
     QString m_deviceAddress;

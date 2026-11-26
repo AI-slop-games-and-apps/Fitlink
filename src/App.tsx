@@ -15,6 +15,7 @@ import {
   encodeMeasureHeartRate,
   encodeMeasureSpo2,
   encodeNotification,
+  encodeStandardNewAlert,
   encodeSyncTime,
   encodeTimeFormat,
   formatProtocolLabel,
@@ -87,6 +88,7 @@ interface PersistedConfig {
   mtuSize: number;
   writeDelayMs: number;
   notificationFormat: NotificationFormat;
+  preferWriteNoResponse: boolean;
   osMirroringEnabled: boolean;
   appFilters: AppMirrorRule[];
   templates: NotificationTemplate[];
@@ -112,6 +114,7 @@ function loadPersisted(): PersistedConfig {
         mtuSize: parsed.mtuSize ?? 20,
         writeDelayMs: parsed.writeDelayMs ?? 50,
         notificationFormat: validFormat,
+        preferWriteNoResponse: parsed.preferWriteNoResponse ?? false,
         osMirroringEnabled: parsed.osMirroringEnabled ?? true,
         appFilters: parsed.appFilters?.length ? parsed.appFilters : DEFAULT_APP_FILTERS,
         templates: parsed.templates ?? DEFAULT_TEMPLATES,
@@ -167,6 +170,7 @@ function loadPersisted(): PersistedConfig {
     mtuSize: 20,
     writeDelayMs: 50,
     notificationFormat: 'standard',
+    preferWriteNoResponse: false,
     osMirroringEnabled: true,
     appFilters: DEFAULT_APP_FILTERS,
     templates: DEFAULT_TEMPLATES,
@@ -301,6 +305,10 @@ export default function App() {
   const [notificationFormat, setNotificationFormat] = useState<NotificationFormat>(
     initial.notificationFormat
   );
+  const [preferWriteNoResponse, setPreferWriteNoResponse] = useState<boolean>(
+    initial.preferWriteNoResponse
+  );
+  const [hasAlertNotificationService, setHasAlertNotificationService] = useState(false);
   const [isTestingFormats, setIsTestingFormats] = useState(false);
   const [androidPermissionGranted, setAndroidPermissionGranted] = useState(false);
   const [appFilters, setAppFilters] = useState<AppMirrorRule[]>(initial.appFilters);
@@ -340,6 +348,7 @@ export default function App() {
       mtuSize: watch.mtuSize,
       writeDelayMs: watch.writeDelayMs,
       notificationFormat,
+      preferWriteNoResponse,
       osMirroringEnabled,
       appFilters,
       templates,
@@ -358,6 +367,7 @@ export default function App() {
     watch.mtuSize,
     watch.writeDelayMs,
     notificationFormat,
+    preferWriteNoResponse,
     osMirroringEnabled,
     appFilters,
     templates,
@@ -400,6 +410,7 @@ export default function App() {
       setIsMeasuringHeartRate(false);
       setIsMeasuringSpo2(false);
       setIsMeasuringBloodPressure(false);
+      setHasAlertNotificationService(false);
       setWatch((prev) => ({
         ...prev,
         isConnected: false,
@@ -505,7 +516,8 @@ export default function App() {
     async (
       actionLabel: string,
       packet: Uint8Array,
-      protoOverride?: 'v1' | 'v2'
+      protoOverride?: 'v1' | 'v2',
+      preferWnr = false
     ): Promise<boolean> => {
       const session = sessionRef.current!;
       const resolved =
@@ -513,7 +525,7 @@ export default function App() {
         resolveProtocolVersion(watch.detectedProtocol, watch.protocolPreference);
       const protoLabel = formatProtocolLabel(resolved);
       try {
-        const res = await session.writePacket(packet, watch.mtuSize, watch.writeDelayMs);
+        const res = await session.writePacket(packet, watch.mtuSize, watch.writeDelayMs, preferWnr);
         appendLog({
           direction: 'tx',
           actionLabel,
@@ -709,6 +721,7 @@ export default function App() {
   const finalizeConnection = useCallback(
     async (result: Awaited<ReturnType<WebBleWatchSession['connectVirtual']>>) => {
       const resolved = resolveProtocolVersion(result.detectedProtocol, watch.protocolPreference);
+      setHasAlertNotificationService(sessionRef.current!.hasAlertNotificationService);
       setWatch((prev) => ({
         ...prev,
         isConnected: true,
@@ -775,6 +788,7 @@ export default function App() {
     setIsMeasuringHeartRate(false);
     setIsMeasuringSpo2(false);
     setIsMeasuringBloodPressure(false);
+    setHasAlertNotificationService(false);
     setWatch((prev) => ({
       ...prev,
       isConnected: false,
@@ -833,7 +847,21 @@ export default function App() {
       const maxBytes = maxNotificationTextBytes(resolved, watch.deviceInfo.firmware);
       const activeFormat = formatOverride ?? notificationFormat;
       const pkt = encodeNotification(resolved, iconId, title, body, maxBytes, activeFormat);
-      const ok = await transmitPacket(sourceLabel, pkt, resolved);
+      const ok = await transmitPacket(sourceLabel, pkt, resolved, preferWriteNoResponse);
+      if (sessionRef.current!.hasAlertNotificationService) {
+        const ansPkt = encodeStandardNewAlert(iconId, title, body);
+        const ansSent = await sessionRef.current!.sendStandardNewAlert(ansPkt);
+        if (ansSent) {
+          appendLog({
+            direction: 'tx',
+            actionLabel: 'BLE New Alert (0x2A46)',
+            protocolLabel: 'ANS 0x1811',
+            hexPreview: bytesToHex(ansPkt),
+            chunkCount: 1,
+            status: 'sent',
+          });
+        }
+      }
       if (ok) {
         setActiveWatchBanner({
           iconId,
@@ -847,7 +875,9 @@ export default function App() {
       }
     },
     [
+      appendLog,
       notificationFormat,
+      preferWriteNoResponse,
       showToast,
       transmitPacket,
       watch.detectedProtocol,
@@ -1105,9 +1135,16 @@ export default function App() {
           {activeTab === 'notifications' && (
             <NotificationsView
               isConnected={watch.isConnected}
+              protocolLabel={formatProtocolLabel(
+                resolveProtocolVersion(watch.detectedProtocol, watch.protocolPreference)
+              )}
               mtuSize={watch.mtuSize}
               notificationFormat={notificationFormat}
               onChangeNotificationFormat={setNotificationFormat}
+              preferWriteNoResponse={preferWriteNoResponse}
+              onTogglePreferWriteNoResponse={setPreferWriteNoResponse}
+              hasAlertNotificationService={hasAlertNotificationService}
+              packetLog={packetLog}
               isTestingFormats={isTestingFormats}
               onTestAllFormats={(iconId, title, body) =>
                 void handleTestAllNotificationFormats(iconId, title, body)

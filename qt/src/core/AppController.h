@@ -44,6 +44,8 @@ class AppController : public QObject {
     Q_PROPERTY(bool osBridgeHasPermission READ osBridgeHasPermission NOTIFY mirroringChanged)
     Q_PROPERTY(bool osMirroringEnabled READ osMirroringEnabled WRITE setOsMirroringEnabled NOTIFY mirroringChanged)
     Q_PROPERTY(int notificationFormat READ notificationFormat WRITE setNotificationFormat NOTIFY notificationFormatChanged)
+    Q_PROPERTY(bool preferWriteNoResponse READ preferWriteNoResponse WRITE setPreferWriteNoResponse NOTIFY protocolChanged)
+    Q_PROPERTY(bool hasAlertNotificationService READ hasAlertNotificationService NOTIFY protocolChanged)
     Q_PROPERTY(QVariantList appFilters READ appFilters NOTIFY appFiltersChanged)
 
     Q_PROPERTY(QVariantList templates READ templates NOTIFY templatesChanged)
@@ -111,6 +113,9 @@ public:
     void setOsMirroringEnabled(bool enabled);
     int notificationFormat() const;
     void setNotificationFormat(int format);
+    bool preferWriteNoResponse() const;
+    void setPreferWriteNoResponse(bool prefer);
+    bool hasAlertNotificationService() const;
     QVariantList appFilters() const { return m_appFilters; }
 
     QVariantList templates() const { return m_templates; }

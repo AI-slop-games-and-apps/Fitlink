@@ -135,6 +135,13 @@ void BleWatchManager::setNotificationFormat(NotificationFormat format) {
     m_notificationFormat = format;
 }
 
+void BleWatchManager::setPreferWriteNoResponse(bool prefer) {
+    if (m_preferWriteNoResponse != prefer) {
+        m_preferWriteNoResponse = prefer;
+        emit protocolChanged();
+    }
+}
+
 QString BleWatchManager::deviceIdentifier(const QBluetoothDeviceInfo &info) {
 #if defined(Q_OS_DARWIN)
     return info.deviceUuid().toString();
@@ -290,6 +297,8 @@ void BleWatchManager::connectToDevice(const QString &addressOrId) {
             this, &BleWatchManager::onServiceDiscovered);
     connect(m_controller, &QLowEnergyController::discoveryFinished,
             this, &BleWatchManager::onServiceDiscoveryFinished);
+    connect(m_controller, &QLowEnergyController::mtuChanged,
+            this, &BleWatchManager::onControllerMtuChanged);
 
     m_controller->connectToDevice();
 }
@@ -327,6 +336,7 @@ void BleWatchManager::cleanupConnection() {
     deleteService(m_immediateAlertService);
     deleteService(m_heartRateService);
     deleteService(m_pulseOximeterService);
+    deleteService(m_alertNotificationService);
 
     m_activityChar = QLowEnergyCharacteristic();
     m_dataOutChar = QLowEnergyCharacteristic();
@@ -335,6 +345,7 @@ void BleWatchManager::cleanupConnection() {
     m_alertLevelChar = QLowEnergyCharacteristic();
     m_heartRateChar = QLowEnergyCharacteristic();
     m_spo2Char = QLowEnergyCharacteristic();
+    m_newAlertChar = QLowEnergyCharacteristic();
 
     if (m_controller) {
         m_controller->disconnect();
@@ -345,14 +356,41 @@ void BleWatchManager::cleanupConnection() {
 }
 
 void BleWatchManager::onControllerConnected() {
+    if (m_controller) {
+        const int negotiatedMtu = m_controller->mtu();
+        if (negotiatedMtu > 23) {
+            const int payloadMtu = std::clamp(negotiatedMtu - 3, 20, 244);
+            if (payloadMtu != m_mtuSize) {
+                m_mtuSize = payloadMtu;
+                emit protocolChanged();
+            }
+        }
+    }
     emit packetLogged(QStringLiteral("system"),
                       tr("BLE Connected — Discovering Services"),
                       FeeaCodec::versionLabel(FeeaCodec::resolveVersion(m_detectedProtocol, m_protocolPref)),
-                      m_deviceAddress,
+                      QStringLiteral("%1 · ATT payload %2B").arg(m_deviceAddress).arg(m_mtuSize),
                       0,
                       QStringLiteral("ack"));
     m_discoveredServiceUuids.clear();
     m_controller->discoverServices();
+}
+
+void BleWatchManager::onControllerMtuChanged(int mtu) {
+    if (mtu <= 23) {
+        return;
+    }
+    const int payloadMtu = std::clamp(mtu - 3, 20, 244);
+    if (payloadMtu != m_mtuSize) {
+        m_mtuSize = payloadMtu;
+        emit protocolChanged();
+    }
+    emit packetLogged(QStringLiteral("system"),
+                      tr("Negotiated ATT MTU"),
+                      FeeaCodec::versionLabel(FeeaCodec::resolveVersion(m_detectedProtocol, m_protocolPref)),
+                      QStringLiteral("MTU %1 → %2B payload").arg(mtu).arg(m_mtuSize),
+                      0,
+                      QStringLiteral("ack"));
 }
 
 void BleWatchManager::onControllerDisconnected() {
@@ -393,6 +431,8 @@ void BleWatchManager::onServiceDiscovered(const QBluetoothUuid &serviceUuid) {
         m_heartRateService = m_controller->createServiceObject(serviceUuid, this);
     } else if (serviceUuid == GattUuids::ServicePulseOximeter && !m_pulseOximeterService) {
         m_pulseOximeterService = m_controller->createServiceObject(serviceUuid, this);
+    } else if (serviceUuid == GattUuids::ServiceAlertNotification && !m_alertNotificationService) {
+        m_alertNotificationService = m_controller->createServiceObject(serviceUuid, this);
     }
 }
 
@@ -467,6 +507,12 @@ void BleWatchManager::onServiceDiscoveryFinished() {
         connect(m_immediateAlertService, &QLowEnergyService::stateChanged,
                 this, &BleWatchManager::onImmediateAlertServiceStateChanged);
         m_pendingServiceDiscoveries.enqueue(m_immediateAlertService);
+    }
+    if (m_alertNotificationService) {
+        attachServiceSignals(m_alertNotificationService);
+        connect(m_alertNotificationService, &QLowEnergyService::stateChanged,
+                this, &BleWatchManager::onAlertNotificationServiceStateChanged);
+        m_pendingServiceDiscoveries.enqueue(m_alertNotificationService);
     }
 
     discoverNextService();
@@ -669,6 +715,27 @@ void BleWatchManager::onPulseOximeterServiceStateChanged(QLowEnergyService::Serv
         enqueueSubscribeToNotify(m_pulseOximeterService, m_spo2Char, tr("Enable SpO2 Notify"));
     }
     advanceServiceDiscovery(m_pulseOximeterService);
+}
+
+void BleWatchManager::onAlertNotificationServiceStateChanged(QLowEnergyService::ServiceState newState) {
+    if (newState == QLowEnergyService::InvalidService) {
+        advanceServiceDiscovery(m_alertNotificationService);
+        return;
+    }
+    if (newState != QLowEnergyService::RemoteServiceDiscovered || !m_alertNotificationService) {
+        return;
+    }
+    m_newAlertChar = m_alertNotificationService->characteristic(GattUuids::CharNewAlert);
+    if (m_newAlertChar.isValid()) {
+        emit packetLogged(QStringLiteral("system"),
+                          tr("Alert Notification Service (0x1811)"),
+                          QStringLiteral("BLE ANS"),
+                          QStringLiteral("0x2A46 New Alert ready"),
+                          0,
+                          QStringLiteral("ack"));
+        emit protocolChanged();
+    }
+    advanceServiceDiscovery(m_alertNotificationService);
 }
 
 void BleWatchManager::enqueueReadChar(QLowEnergyService *service,
@@ -984,10 +1051,11 @@ bool BleWatchManager::enqueuePacket(const QByteArray &packet, const QString &act
         return false;
     }
 
-    // Prefer WriteWithResponse when supported: per spec, write-success notification comes AFTER watch responses.
-    const auto mode = (m_dataOutChar.properties() & QLowEnergyCharacteristic::Write)
-        ? QLowEnergyService::WriteWithResponse
-        : QLowEnergyService::WriteWithoutResponse;
+    const bool supportsWrite = (m_dataOutChar.properties() & QLowEnergyCharacteristic::Write) != 0;
+    const bool supportsWriteNoResp = (m_dataOutChar.properties() & QLowEnergyCharacteristic::WriteNoResponse) != 0;
+    const auto mode = (m_preferWriteNoResponse && supportsWriteNoResp)
+        ? QLowEnergyService::WriteWithoutResponse
+        : (supportsWrite ? QLowEnergyService::WriteWithResponse : QLowEnergyService::WriteWithoutResponse);
 
     const auto activeVersion = FeeaCodec::resolveVersion(m_detectedProtocol, m_protocolPref);
     const auto chunks = FeeaCodec::chunkPacket(packet, m_mtuSize);
@@ -1037,13 +1105,40 @@ bool BleWatchManager::sendNotification(WatchAppIcon icon,
         version,
         m_deviceInfo.value(QStringLiteral("firmware")).toString()
     );
-    const auto activeFormat = (formatOverride >= 0 && formatOverride <= 5)
+    const auto activeFormat = (formatOverride >= 0 && formatOverride <= 7)
         ? static_cast<NotificationFormat>(formatOverride)
         : m_notificationFormat;
     const QByteArray packet = FeeaCodec::encodeNotification(
         version, icon, title, body, maxTextBytes, activeFormat
     );
-    return enqueuePacket(packet, tr("Push Notification"));
+    const bool sent = enqueuePacket(packet, tr("Push Notification (0x64)"));
+
+    // Also push via standard BLE Alert Notification Service (0x1811 / 0x2A46) if the watch exposes it
+    if (sent && m_alertNotificationService && m_newAlertChar.isValid()
+        && (m_newAlertChar.properties() & (QLowEnergyCharacteristic::Write | QLowEnergyCharacteristic::WriteNoResponse))) {
+        const QByteArray ansPayload = FeeaCodec::encodeStandardNewAlert(icon, title, body);
+        GattOp op;
+        op.type = GattOp::Type::WriteChar;
+        op.service = m_alertNotificationService;
+        op.characteristic = m_newAlertChar;
+        op.value = ansPayload;
+        op.writeMode = (m_newAlertChar.properties() & QLowEnergyCharacteristic::WriteNoResponse)
+            ? QLowEnergyService::WriteWithoutResponse
+            : QLowEnergyService::WriteWithResponse;
+        op.label = tr("BLE New Alert (0x2A46)");
+        op.postDelayMs = 40;
+        m_gattOpQueue.enqueue(op);
+        emit packetLogged(QStringLiteral("tx"),
+                          tr("BLE New Alert (0x2A46)"),
+                          QStringLiteral("BLE ANS"),
+                          FeeaCodec::toHexString(ansPayload),
+                          1,
+                          QStringLiteral("sent"));
+        if (!m_gattOpInFlight && !m_gattOpTimer.isActive()) {
+            processGattOpQueue();
+        }
+    }
+    return sent;
 }
 
 bool BleWatchManager::sendFindWatch() {

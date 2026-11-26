@@ -1,5 +1,15 @@
 import { useEffect, useState } from 'react';
-import { Bell, BookmarkPlus, Clock, FlaskConical, Play, Plus, Send, Trash2 } from 'lucide-react';
+import {
+  Bell,
+  BookmarkPlus,
+  Clock,
+  FlaskConical,
+  PhoneCall,
+  Play,
+  Plus,
+  Send,
+  Trash2,
+} from 'lucide-react';
 import {
   NOTIFICATION_FORMAT_OPTIONS,
   WATCH_APP_PRESETS,
@@ -10,6 +20,7 @@ import {
 import type {
   AppMirrorRule,
   NotificationTemplate,
+  PacketLogEntry,
   ScheduledAlert,
 } from '../types/fitlink';
 import { MaterialSwitch } from './MaterialSwitch';
@@ -18,9 +29,14 @@ type SubTab = 'mirror' | 'composer' | 'scheduled';
 
 interface NotificationsViewProps {
   isConnected: boolean;
+  protocolLabel: string;
   mtuSize: number;
   notificationFormat: NotificationFormat;
   onChangeNotificationFormat: (format: NotificationFormat) => void;
+  preferWriteNoResponse: boolean;
+  onTogglePreferWriteNoResponse: (enabled: boolean) => void;
+  hasAlertNotificationService: boolean;
+  packetLog: PacketLogEntry[];
   isTestingFormats: boolean;
   onTestAllFormats: (iconId: number, title: string, body: string) => void;
   osPlatformMode: 'linux' | 'android';
@@ -61,9 +77,14 @@ function formatCountdown(nextRunMs: number, nowMs: number): string {
 
 export function NotificationsView({
   isConnected,
+  protocolLabel,
   mtuSize,
   notificationFormat,
   onChangeNotificationFormat,
+  preferWriteNoResponse,
+  onTogglePreferWriteNoResponse,
+  hasAlertNotificationService,
+  packetLog,
   isTestingFormats,
   onTestAllFormats,
   osPlatformMode,
@@ -287,9 +308,15 @@ export function NotificationsView({
         {subTab === 'composer' && (
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
             <section className="rounded-2xl border border-[#E2E8F0] bg-white p-6 lg:col-span-7">
-              <h3 className="text-base font-semibold text-[#0F172A]">
-                Compose Watch Notification
-              </h3>
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <h3 className="text-base font-semibold text-[#0F172A]">
+                  Compose Watch Notification
+                </h3>
+                <span className="font-mono text-[11px] text-[#64748B] tabular-nums">
+                  {protocolLabel} · {mtuSize}B MTU · {preferWriteNoResponse ? 'WNR' : 'WWR'} · ANS{' '}
+                  {hasAlertNotificationService ? '0x1811' : 'Off'}
+                </span>
+              </div>
 
               <form onSubmit={handleSendComposer} className="mt-4 space-y-4">
                 <div>
@@ -361,6 +388,22 @@ export function NotificationsView({
                   </select>
                 </div>
 
+                <div className="flex items-center justify-between gap-4 rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-3.5 py-2.5">
+                  <div className="min-w-0">
+                    <div className="text-xs font-medium text-[#0F172A]">
+                      Write Without Response (0xFEE2)
+                    </div>
+                    <div className="text-[11px] text-[#64748B]">
+                      Enable if watch ignores acknowledged 0x64 notification writes
+                    </div>
+                  </div>
+                  <MaterialSwitch
+                    checked={preferWriteNoResponse}
+                    onChange={onTogglePreferWriteNoResponse}
+                    label="Prefer Write Without Response for 0x64 notifications"
+                  />
+                </div>
+
                 <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[#64748B]">
                   <span className="font-mono tabular-nums">
                     {metrics.utf8Bytes} / 128 bytes · {metrics.chunks} BLE chunk(s) at {mtuSize}B MTU
@@ -386,7 +429,16 @@ export function NotificationsView({
                     className="inline-flex h-10 items-center gap-2 rounded-xl border border-[#2563EB]/30 bg-[#EFF6FF] px-4 text-sm font-medium text-[#2563EB] transition-colors hover:bg-[#DBEAFE] disabled:cursor-not-allowed disabled:opacity-50 whitespace-nowrap"
                   >
                     <Bell className="h-4 w-4" />
-                    <span>Send Quick Test</span>
+                    <span>Quick Test</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!isConnected || isTestingFormats}
+                    onClick={() => onSendManualNotification(0x00, 'FitLink', 'Test Call')}
+                    className="inline-flex h-10 items-center gap-2 rounded-xl border border-[#CBD5E1] bg-white px-4 text-sm font-medium text-[#0F172A] transition-colors hover:bg-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-50 whitespace-nowrap"
+                  >
+                    <PhoneCall className="h-4 w-4" />
+                    <span>Call Alert (0x00)</span>
                   </button>
                   <button
                     type="button"
@@ -401,7 +453,7 @@ export function NotificationsView({
                     className="inline-flex h-10 items-center gap-2 rounded-xl border border-[#CBD5E1] bg-white px-4 text-sm font-medium text-[#0F172A] transition-colors hover:bg-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-50 whitespace-nowrap"
                   >
                     <FlaskConical className="h-4 w-4" />
-                    <span>{isTestingFormats ? 'Testing Formats...' : 'Test All Formats'}</span>
+                    <span>{isTestingFormats ? 'Testing Formats...' : 'Test All Formats (1–8)'}</span>
                   </button>
                   <button
                     type="button"
@@ -487,6 +539,47 @@ export function NotificationsView({
                           >
                             <Trash2 className="h-4 w-4" />
                           </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              <section className="rounded-2xl border border-[#E2E8F0] bg-white p-6">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-base font-semibold text-[#0F172A]">Recent BLE Packets</h3>
+                  <span className="font-mono text-[11px] text-[#64748B]">Last 4</span>
+                </div>
+                {packetLog.length === 0 ? (
+                  <p className="mt-3 text-xs text-[#64748B]">
+                    Send a test message to inspect the exact TX frame and watch RX reply.
+                  </p>
+                ) : (
+                  <div className="mt-3 divide-y divide-[#F1F5F9]">
+                    {packetLog.slice(0, 4).map((entry) => (
+                      <div key={entry.id} className="py-2.5 first:pt-0 last:pb-0">
+                        <div className="flex items-center justify-between gap-2 text-xs">
+                          <span className="truncate font-medium text-[#0F172A]">
+                            <span
+                              className={`mr-1.5 font-mono uppercase ${
+                                entry.direction === 'tx'
+                                  ? 'text-[#2563EB]'
+                                  : entry.direction === 'rx'
+                                  ? 'text-[#16A34A]'
+                                  : 'text-[#64748B]'
+                              }`}
+                            >
+                              {entry.direction}
+                            </span>
+                            {entry.actionLabel}
+                          </span>
+                          <span className="shrink-0 font-mono text-[11px] text-[#94A3B8] tabular-nums">
+                            {entry.timestamp}
+                          </span>
+                        </div>
+                        <div className="mt-1 truncate font-mono text-[11px] text-[#64748B]">
+                          {entry.hexPreview}
                         </div>
                       </div>
                     ))}

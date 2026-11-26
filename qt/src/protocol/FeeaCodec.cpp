@@ -292,12 +292,25 @@ QByteArray FeeaCodec::encodeNotification(ProtocolVersion version,
                                          int maxUtf8Bytes,
                                          NotificationFormat format) {
     const int clampedMax = std::clamp(maxUtf8Bytes, 16, 240);
-    // Clamp icon IDs above 0x0C to 0x0C (Other/Generic) so firmware with 0x00..0x0C icon tables accepts them.
-    const uint8_t rawIcon = static_cast<uint8_t>(icon);
-    const uint8_t wireIcon = (rawIcon <= 0x0C) ? rawIcon : 0x0C;
+    const uint8_t wireIcon = static_cast<uint8_t>(icon);
 
     const QString trimmedTitle = title.trimmed();
     const QString trimmedBody = body.trimmed();
+
+    if (format == NotificationFormat::SplitLen) {
+        const QString effectiveTitle = trimmedTitle.isEmpty() ? QStringLiteral("Alert") : trimmedTitle;
+        const QByteArray titleBytes = truncateUtf8(effectiveTitle, std::min(48, clampedMax - 4));
+        const int remaining = std::max(0, clampedMax - static_cast<int>(titleBytes.size()) - 3);
+        const QByteArray bodyBytes = trimmedBody.isEmpty() ? QByteArray() : truncateUtf8(trimmedBody, remaining);
+        QByteArray payload;
+        payload.reserve(3 + titleBytes.size() + bodyBytes.size());
+        payload.append(static_cast<char>(wireIcon));
+        payload.append(static_cast<char>(static_cast<int>(titleBytes.size()) & 0xFF));
+        payload.append(titleBytes);
+        payload.append(static_cast<char>(static_cast<int>(bodyBytes.size()) & 0xFF));
+        payload.append(bodyBytes);
+        return framePacket(version, CmdPushNotification, payload);
+    }
 
     if (format == NotificationFormat::SplitTitle) {
         const QString effectiveTitle = trimmedTitle.isEmpty() ? QStringLiteral("Alert") : trimmedTitle;
@@ -336,11 +349,11 @@ QByteArray FeeaCodec::encodeNotification(ProtocolVersion version,
     QByteArray payload;
 
     switch (format) {
-    case NotificationFormat::NulTerminated:
+    case NotificationFormat::V2Version01:
         payload.reserve(2 + textBytes.size());
         payload.append(static_cast<char>(wireIcon));
+        payload.append(static_cast<char>(0x01));
         payload.append(textBytes);
-        payload.append('\0');
         break;
     case NotificationFormat::V2Header:
         payload.reserve(2 + textBytes.size());
@@ -348,10 +361,16 @@ QByteArray FeeaCodec::encodeNotification(ProtocolVersion version,
         payload.append('\0');
         payload.append(textBytes);
         break;
+    case NotificationFormat::NulTerminated:
+        payload.reserve(2 + textBytes.size());
+        payload.append(static_cast<char>(wireIcon));
+        payload.append(textBytes);
+        payload.append('\0');
+        break;
     case NotificationFormat::LengthPrefixed:
         payload.reserve(2 + textBytes.size());
         payload.append(static_cast<char>(wireIcon));
-        payload.append(static_cast<char>(textBytes.size() & 0xFF));
+        payload.append(static_cast<char>(static_cast<int>(textBytes.size()) & 0xFF));
         payload.append(textBytes);
         break;
     case NotificationFormat::Standard:
@@ -363,6 +382,40 @@ QByteArray FeeaCodec::encodeNotification(ProtocolVersion version,
     }
 
     return framePacket(version, CmdPushNotification, payload);
+}
+
+QByteArray FeeaCodec::encodeStandardNewAlert(WatchAppIcon icon,
+                                             const QString &title,
+                                             const QString &body) {
+    // Bluetooth SIG Alert Notification Service (0x1811) New Alert (0x2A46):
+    //   [Category ID (1B)] [Num New Alerts (1B)] [Text String Info (UTF-8, <= 18B)]
+    uint8_t categoryId = 0x00; // Simple Alert
+    if (icon == WatchAppIcon::IncomingCall) {
+        categoryId = 0x03; // Call
+    } else if (icon == WatchAppIcon::Sms) {
+        categoryId = 0x05; // SMS/MMS
+    } else if (icon == WatchAppIcon::Gmail) {
+        categoryId = 0x01; // Email
+    } else if (icon == WatchAppIcon::Calendar) {
+        categoryId = 0x07; // Schedule
+    }
+
+    const QString trimmedTitle = title.trimmed();
+    const QString trimmedBody = body.trimmed();
+    QString text;
+    if (!trimmedTitle.isEmpty() && !trimmedBody.isEmpty()) {
+        text = trimmedTitle + QStringLiteral(": ") + trimmedBody;
+    } else {
+        text = trimmedTitle.isEmpty() ? trimmedBody : trimmedTitle;
+    }
+    const QByteArray utf8 = truncateUtf8(text, 18);
+
+    QByteArray out;
+    out.reserve(2 + utf8.size());
+    out.append(static_cast<char>(categoryId));
+    out.append(static_cast<char>(0x01));
+    out.append(utf8);
+    return out;
 }
 
 QByteArray FeeaCodec::encodeFindWatch(ProtocolVersion version) {
