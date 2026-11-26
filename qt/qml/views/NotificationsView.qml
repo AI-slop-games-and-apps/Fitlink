@@ -21,17 +21,6 @@ ColumnLayout {
         { id: 255, label: "All / Other (0xFF)" }
     ]
 
-    readonly property var formatOptions: [
-        "1. 0x64 Standard UTF-8 [icon, text]",
-        "2. 0x64 V2 Version [icon, 0x01, text]",
-        "3. 0x64 V2 Flag [icon, 0x00, text]",
-        "4. 0x64 Split Length [icon, tLen, title, bLen, body]",
-        "5. 0x64 Split NUL [icon, title, 0x00, body, 0x00]",
-        "6. 0x64 Null-Terminated [icon, text, 0x00]",
-        "7. 0x64 Length-Prefixed [icon, len, text]",
-        "8. 0x64 UTF-16LE [icon, utf16le]"
-    ]
-
     TabBar {
         id: subTabs
         Layout.fillWidth: true
@@ -145,7 +134,7 @@ ColumnLayout {
                         ComboBox {
                             id: formatSelector
                             Layout.fillWidth: true
-                            model: root.formatOptions
+                            model: appController.notificationFormatLabels
                             currentIndex: appController.notificationFormat
                             onActivated: function(index) {
                                 appController.notificationFormat = index
@@ -185,6 +174,26 @@ ColumnLayout {
                                   .arg(appController.mtuSize)
                             font.pixelSize: 12
                             color: "#64748B"
+                        }
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            visible: appController.isTestingFormats
+                            implicitHeight: testBannerLbl.implicitHeight + 18
+                            radius: 10
+                            color: "#EFF6FF"
+                            border.color: "#BFDBFE"
+                            border.width: 1
+                            Label {
+                                id: testBannerLbl
+                                anchors.fill: parent
+                                anchors.margins: 9
+                                text: appController.formatTestStatus
+                                font.pixelSize: 12
+                                font.weight: Font.Medium
+                                color: "#1D4ED8"
+                                wrapMode: Text.WordWrap
+                            }
                         }
 
                         Flow {
@@ -287,18 +296,24 @@ ColumnLayout {
                             AbstractButton {
                                 id: testAllBtn
                                 padding: 0
-                                enabled: appController.isConnected
+                                enabled: appController.isConnected || appController.isTestingFormats
                                 implicitHeight: 44
-                                implicitWidth: Math.max(166, testAllRow.implicitWidth + 26)
+                                implicitWidth: Math.max(182, testAllRow.implicitWidth + 26)
                                 onClicked: {
-                                    var iconId = root.appIcons[iconSelector.currentIndex].id
-                                    appController.testAllNotificationFormats(iconId, titleInput.text, bodyInput.text)
+                                    if (appController.isTestingFormats) {
+                                        appController.stopFormatTest()
+                                    } else {
+                                        var iconId = root.appIcons[iconSelector.currentIndex].id
+                                        appController.testAllNotificationFormats(iconId, titleInput.text, bodyInput.text)
+                                    }
                                 }
                                 background: Rectangle {
                                     radius: 10
-                                    color: testAllBtn.pressed ? "#E2E8F0" : "#F8FAFC"
+                                    color: appController.isTestingFormats
+                                           ? (testAllBtn.pressed ? "#FECACA" : "#FEE2E2")
+                                           : (testAllBtn.pressed ? "#E2E8F0" : "#F8FAFC")
                                     border.width: 1
-                                    border.color: "#CBD5E1"
+                                    border.color: appController.isTestingFormats ? "#FCA5A5" : "#CBD5E1"
                                     opacity: testAllBtn.enabled ? 1.0 : 0.45
                                 }
                                 contentItem: Item {
@@ -306,13 +321,20 @@ ColumnLayout {
                                         id: testAllRow
                                         anchors.centerIn: parent
                                         spacing: 7
-                                        FitIcon { anchors.verticalCenter: parent.verticalCenter; name: "refresh"; size: 15; color: "#0F172A" }
+                                        FitIcon {
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            name: "refresh"
+                                            size: 15
+                                            color: appController.isTestingFormats ? "#DC2626" : "#0F172A"
+                                        }
                                         Label {
                                             anchors.verticalCenter: parent.verticalCenter
-                                            text: qsTr("Test All Formats (1–8)")
+                                            text: appController.isTestingFormats
+                                                  ? qsTr("Stop Formula Test")
+                                                  : qsTr("Test All Formulas (1–36)")
                                             font.pixelSize: 13
                                             font.weight: Font.DemiBold
-                                            color: "#0F172A"
+                                            color: appController.isTestingFormats ? "#DC2626" : "#0F172A"
                                         }
                                     }
                                 }

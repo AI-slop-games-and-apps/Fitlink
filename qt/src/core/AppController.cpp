@@ -86,6 +86,30 @@ AppController::AppController(QObject *parent)
             emit activityChanged();
         }
     });
+
+    m_formatTestTimer.setInterval(1500);
+    connect(&m_formatTestTimer, &QTimer::timeout, this, [this]() {
+        if (!m_isTestingFormats || !isConnected()) {
+            stopFormatTest();
+            return;
+        }
+        if (m_formatTestIndex >= NotificationFormatCount) {
+            stopFormatTest();
+            emit toastMessage(tr("Finished testing all %1 formulas — pick the # shown on your watch").arg(NotificationFormatCount), false);
+            return;
+        }
+        const int step = m_formatTestIndex;
+        m_formatTestIndex += 1;
+        const QString label = FeeaCodec::notificationFormatLabel(static_cast<NotificationFormat>(step));
+        m_formatTestStatus = tr("Testing %1/%2: %3").arg(step + 1).arg(NotificationFormatCount).arg(label);
+        emit formatTestChanged();
+        m_ble->sendNotification(
+            m_formatTestIcon,
+            QStringLiteral("%1 #%2").arg(m_formatTestTitle).arg(step + 1),
+            m_formatTestBody,
+            step
+        );
+    });
 }
 
 int AppController::connectionState() const {
@@ -244,8 +268,12 @@ int AppController::notificationFormat() const {
     return static_cast<int>(m_ble->notificationFormat());
 }
 
+QStringList AppController::notificationFormatLabels() const {
+    return FeeaCodec::notificationFormatLabels();
+}
+
 void AppController::setNotificationFormat(int format) {
-    const int clamped = std::clamp(format, 0, 7);
+    const int clamped = std::clamp(format, 0, NotificationFormatCount - 1);
     const auto next = static_cast<NotificationFormat>(clamped);
     if (m_ble->notificationFormat() == next) {
         return;
@@ -291,30 +319,37 @@ void AppController::sendManualNotification(int iconId, const QString &title, con
 
 void AppController::testAllNotificationFormats(int iconId, const QString &title, const QString &body) {
     if (!isConnected()) {
-        emit toastMessage(tr("Connect a watch before testing notification formats"), true);
+        emit toastMessage(tr("Connect a watch before testing notification formulas"), true);
         return;
     }
-    const auto icon = toWatchIcon(iconId);
-    const QString baseTitle = title.trimmed().isEmpty() ? QStringLiteral("FitLink") : title.trimmed();
-    const QString baseBody = body.trimmed().isEmpty() ? QStringLiteral("Hi") : body.trimmed();
-    static const char *labels[8] = {
-        "Standard UTF-8",
-        "V2 Version [icon, 0x01, text]",
-        "V2 Flag [icon, 0x00, text]",
-        "Split Length [icon, tLen, title, bLen, body]",
-        "Split NUL [icon, title, 0x00, body, 0x00]",
-        "Null-Terminated UTF-8",
-        "Length-Prefixed UTF-8",
-        "UTF-16LE Unicode"
-    };
-    for (int i = 0; i < 8; ++i) {
-        QTimer::singleShot(i * 1200, this, [this, icon, baseTitle, baseBody, i]() {
-            if (!isConnected()) {
-                return;
-            }
-            emit toastMessage(tr("Testing %1/8: %2").arg(i + 1).arg(QString::fromLatin1(labels[i])), false);
-            m_ble->sendNotification(icon, QStringLiteral("%1 #%2").arg(baseTitle).arg(i + 1), baseBody, i);
-        });
+    if (m_isTestingFormats) {
+        stopFormatTest();
+        return;
+    }
+    m_formatTestIcon = toWatchIcon(iconId);
+    m_formatTestTitle = title.trimmed().isEmpty() ? QStringLiteral("FitLink") : title.trimmed();
+    m_formatTestBody = body.trimmed().isEmpty() ? QStringLiteral("Hi") : body.trimmed();
+    m_formatTestIndex = 1;
+    m_isTestingFormats = true;
+    const QString firstLabel = FeeaCodec::notificationFormatLabel(NotificationFormat::Standard);
+    m_formatTestStatus = tr("Testing 1/%1: %2").arg(NotificationFormatCount).arg(firstLabel);
+    emit formatTestChanged();
+
+    m_ble->sendNotification(
+        m_formatTestIcon,
+        QStringLiteral("%1 #1").arg(m_formatTestTitle),
+        m_formatTestBody,
+        0
+    );
+    m_formatTestTimer.start();
+}
+
+void AppController::stopFormatTest() {
+    m_formatTestTimer.stop();
+    if (m_isTestingFormats || !m_formatTestStatus.isEmpty()) {
+        m_isTestingFormats = false;
+        m_formatTestStatus.clear();
+        emit formatTestChanged();
     }
 }
 
@@ -624,6 +659,7 @@ void AppController::measureBloodPressure() {
 void AppController::onBleStateChanged(BleWatchManager::ConnectionState state) {
     emit connectionStateChanged();
     if (state != BleWatchManager::ConnectionState::Connected) {
+        stopFormatTest();
         bool changed = false;
         if (m_isMeasuringHeartRate) {
             m_hrMeasureTimer.stop();
@@ -887,7 +923,7 @@ void AppController::loadPersistedState() {
     m_ble->setMtuSize(settings.value(QStringLiteral("protocol/mtu"), 20).toInt());
     m_ble->setWriteDelayMs(settings.value(QStringLiteral("protocol/delayMs"), 50).toInt());
     m_ble->setNotificationFormat(static_cast<NotificationFormat>(
-        std::clamp(settings.value(QStringLiteral("notifications/payloadFormat"), 0).toInt(), 0, 7)
+        std::clamp(settings.value(QStringLiteral("notifications/payloadFormat"), 0).toInt(), 0, NotificationFormatCount - 1)
     ));
     m_ble->setPreferWriteNoResponse(settings.value(QStringLiteral("notifications/preferWriteNoResponse"), false).toBool());
     m_osBridge->setEnabled(settings.value(QStringLiteral("notifications/osMirroringEnabled"), true).toBool());

@@ -310,6 +310,8 @@ export default function App() {
   );
   const [hasAlertNotificationService, setHasAlertNotificationService] = useState(false);
   const [isTestingFormats, setIsTestingFormats] = useState(false);
+  const [formatTestStatus, setFormatTestStatus] = useState('');
+  const cancelFormatTestRef = useRef(false);
   const [androidPermissionGranted, setAndroidPermissionGranted] = useState(false);
   const [appFilters, setAppFilters] = useState<AppMirrorRule[]>(initial.appFilters);
 
@@ -848,7 +850,7 @@ export default function App() {
       const activeFormat = formatOverride ?? notificationFormat;
       const pkt = encodeNotification(resolved, iconId, title, body, maxBytes, activeFormat);
       const ok = await transmitPacket(sourceLabel, pkt, resolved, preferWriteNoResponse);
-      if (sessionRef.current!.hasAlertNotificationService) {
+      if ((!formatOverride || formatOverride === 'standard') && sessionRef.current!.hasAlertNotificationService) {
         const ansPkt = encodeStandardNewAlert(iconId, title, body);
         const ansSent = await sessionRef.current!.sendStandardNewAlert(ansPkt);
         if (ansSent) {
@@ -887,31 +889,46 @@ export default function App() {
     ]
   );
 
+  const handleStopFormatTest = useCallback(() => {
+    cancelFormatTestRef.current = true;
+    setIsTestingFormats(false);
+    setFormatTestStatus('');
+  }, []);
+
   const handleTestAllNotificationFormats = useCallback(
     async (iconId: number, title: string, body: string) => {
       if (!watch.isConnected) {
-        showToast('Connect a watch before testing notification formats', true);
+        showToast('Connect a watch before testing notification formulas', true);
         return;
       }
+      cancelFormatTestRef.current = false;
       setIsTestingFormats(true);
       try {
         for (let i = 0; i < NOTIFICATION_FORMAT_OPTIONS.length; i += 1) {
+          if (cancelFormatTestRef.current) break;
           const opt = NOTIFICATION_FORMAT_OPTIONS[i];
-          showToast(`Testing ${i + 1}/${NOTIFICATION_FORMAT_OPTIONS.length}: ${opt.label}`);
+          setFormatTestStatus(
+            `Testing ${i + 1}/${NOTIFICATION_FORMAT_OPTIONS.length}: ${opt.label} (${opt.description})`
+          );
           await handleSendNotification(
             iconId,
             `${title} #${i + 1}`,
             body,
-            `Test ${opt.label}`,
+            `Formula #${i + 1} (0x64)`,
             opt.id
           );
-          if (i < NOTIFICATION_FORMAT_OPTIONS.length - 1) {
-            await new Promise((resolve) => setTimeout(resolve, 1200));
+          if (i < NOTIFICATION_FORMAT_OPTIONS.length - 1 && !cancelFormatTestRef.current) {
+            await new Promise((resolve) => setTimeout(resolve, 1500));
           }
         }
-        showToast('Finished testing all 0x64 formats — select the one shown on your watch');
+        if (!cancelFormatTestRef.current) {
+          showToast(
+            `Finished testing all ${NOTIFICATION_FORMAT_OPTIONS.length} formulas — select the # shown on your watch`
+          );
+        }
       } finally {
         setIsTestingFormats(false);
+        setFormatTestStatus('');
       }
     },
     [handleSendNotification, showToast, watch.isConnected]
@@ -1146,6 +1163,8 @@ export default function App() {
               hasAlertNotificationService={hasAlertNotificationService}
               packetLog={packetLog}
               isTestingFormats={isTestingFormats}
+              formatTestStatus={formatTestStatus}
+              onStopFormatTest={handleStopFormatTest}
               onTestAllFormats={(iconId, title, body) =>
                 void handleTestAllNotificationFormats(iconId, title, body)
               }

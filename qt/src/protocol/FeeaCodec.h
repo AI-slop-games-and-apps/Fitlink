@@ -4,6 +4,7 @@
 #include <QDateTime>
 #include <QList>
 #include <QString>
+#include <QStringList>
 #include <QBluetoothUuid>
 #include <cstdint>
 
@@ -22,15 +23,45 @@ enum class ProtocolPreference {
 };
 
 enum class NotificationFormat {
-    Standard = 0,       // [icon] [UTF-8 text]
-    V2Version01 = 1,    // [icon] [0x01] [UTF-8 text]
-    V2Header = 2,       // [icon] [0x00] [UTF-8 text]
-    SplitLen = 3,       // [icon] [titleLen] [title] [bodyLen] [body]
-    SplitTitle = 4,     // [icon] [title] [0x00] [body] [0x00]
-    NulTerminated = 5,  // [icon] [UTF-8 text] [0x00]
-    LengthPrefixed = 6, // [icon] [len] [UTF-8 text]
-    Utf16Le = 7         // [icon] [UTF-16LE text]
+    Standard = 0,           // [icon] [UTF-8]
+    V2Version01 = 1,        // [icon] [0x01] [UTF-8]
+    V2Version02 = 2,        // [icon] [0x02] [UTF-8]
+    V2Header = 3,           // [icon] [0x00] [UTF-8]
+    SplitLen = 4,           // [icon] [tLen] [title] [bLen] [body]
+    SplitTitle = 5,         // [icon] [title] [0x00] [body] [0x00]
+    NulTerminated = 6,      // [icon] [UTF-8] [0x00]
+    LengthPrefixed = 7,     // [icon] [len] [UTF-8]
+    Utf16Le = 8,            // [icon] [UTF-16LE]
+    Utf16Be = 9,            // [icon] [UTF-16BE]
+    NewlineSplit = 10,      // [icon] [title] [0x0A] [body]
+    SplitTitleNoTrail = 11, // [icon] [title] [0x00] [body]
+    HighBitIcon = 12,       // [icon|0x80] [UTF-8]
+    HighBitV2Header00 = 13, // [icon|0x80] [0x00] [UTF-8]
+    HighBitV2Version01 = 14,// [icon|0x80] [0x01] [UTF-8]
+    V2Flag01SplitNul = 15,  // [icon] [0x01] [title] [0x00] [body] [0x00]
+    V2Flag02SplitNul = 16,  // [icon] [0x02] [title] [0x00] [body] [0x00]
+    V2Flag00SplitNul = 17,  // [icon] [0x00] [title] [0x00] [body] [0x00]
+    V2Flag01SplitLen = 18,  // [icon] [0x01] [tLen] [title] [bLen] [body]
+    V2Flag00LenUtf8 = 19,   // [icon] [0x00] [len] [UTF-8]
+    V2Flag01LenUtf8 = 20,   // [icon] [0x01] [len] [UTF-8]
+    Action01Icon = 21,      // [0x01] [icon] [UTF-8]
+    Action00Icon = 22,      // [0x00] [icon] [UTF-8]
+    Action01IconLen = 23,   // [0x01] [icon] [len] [UTF-8]
+    Paged0101 = 24,         // [icon] [0x01] [0x01] [UTF-8]
+    Header0001 = 25,        // [icon] [0x00] [0x01] [UTF-8]
+    Header0100 = 26,        // [icon] [0x01] [0x00] [UTF-8]
+    Header0000 = 27,        // [icon] [0x00] [0x00] [UTF-8]
+    V1FrameStandard = 28,   // FE EA 10 LL 64 [icon] [UTF-8]
+    V1FrameSplitNul = 29,   // FE EA 10 LL 64 [icon] [title] [0x00] [body] [0x00]
+    PayloadLenOnly = 30,    // FE EA 20 <payLen> 64 [icon] [UTF-8]
+    RawNoHeader = 31,       // 64 [icon] [UTF-8]
+    Icon16BeV2Flag01 = 32,  // [0x00] [icon] [0x01] [UTF-8]
+    IconLen16BeUtf8 = 33,   // [icon] [lenHi] [lenLo] [UTF-8]
+    Utf16LeNul = 34,        // [icon] [UTF-16LE] [0x00] [0x00]
+    V2Flag01Utf16Le = 35    // [icon] [0x01] [UTF-16LE]
 };
+
+inline constexpr int NotificationFormatCount = 36;
 
 // Standard 0xFEEA BLE notification source icon IDs
 enum class WatchAppIcon : uint8_t {
@@ -153,6 +184,8 @@ public:
                                          const QString &body,
                                          int maxUtf8Bytes = 128,
                                          NotificationFormat format = NotificationFormat::Standard);
+    static QString notificationFormatLabel(NotificationFormat format);
+    static QStringList notificationFormatLabels();
     static QByteArray encodeStandardNewAlert(WatchAppIcon icon,
                                              const QString &title,
                                              const QString &body);

@@ -4,12 +4,40 @@ export type ProtocolPreference = 'auto' | 'v2' | 'v1';
 export type NotificationFormat =
   | 'standard'
   | 'v2_version_01'
+  | 'v2_version_02'
   | 'v2_header'
   | 'split_len'
   | 'split_title'
   | 'nul'
   | 'length_prefixed'
-  | 'utf16le';
+  | 'utf16le'
+  | 'utf16be'
+  | 'newline_split'
+  | 'split_title_notrail'
+  | 'high_bit_icon'
+  | 'high_bit_v2_00'
+  | 'high_bit_v2_01'
+  | 'v2_flag01_split_nul'
+  | 'v2_flag02_split_nul'
+  | 'v2_flag00_split_nul'
+  | 'v2_flag01_split_len'
+  | 'v2_flag00_len_utf8'
+  | 'v2_flag01_len_utf8'
+  | 'action01_icon'
+  | 'action00_icon'
+  | 'action01_icon_len'
+  | 'paged_01_01'
+  | 'header_00_01'
+  | 'header_01_00'
+  | 'header_00_00'
+  | 'v1_frame_standard'
+  | 'v1_frame_split_nul'
+  | 'payload_len_only'
+  | 'raw_no_header'
+  | 'icon16be_v2_01'
+  | 'icon_len16be_utf8'
+  | 'utf16le_nul'
+  | 'v2_flag01_utf16le';
 
 export interface NotificationFormatOption {
   id: NotificationFormat;
@@ -18,46 +46,42 @@ export interface NotificationFormatOption {
 }
 
 export const NOTIFICATION_FORMAT_OPTIONS: NotificationFormatOption[] = [
-  {
-    id: 'standard',
-    label: '1. Standard UTF-8 (Default)',
-    description: '[icon] [UTF-8 text]',
-  },
-  {
-    id: 'v2_version_01',
-    label: '2. V2 Version Flag 0x01',
-    description: '[icon] [0x01] [UTF-8 text]',
-  },
-  {
-    id: 'v2_header',
-    label: '3. V2 Flag Header 0x00',
-    description: '[icon] [0x00] [UTF-8 text]',
-  },
-  {
-    id: 'split_len',
-    label: '4. Split Length-Prefixed',
-    description: '[icon] [tLen] [title] [bLen] [body]',
-  },
-  {
-    id: 'split_title',
-    label: '5. Split NUL Title / Body',
-    description: '[icon] [title] [0x00] [body] [0x00]',
-  },
-  {
-    id: 'nul',
-    label: '6. Null-Terminated UTF-8',
-    description: '[icon] [UTF-8 text] [0x00]',
-  },
-  {
-    id: 'length_prefixed',
-    label: '7. Length-Prefixed UTF-8',
-    description: '[icon] [len] [UTF-8 text]',
-  },
-  {
-    id: 'utf16le',
-    label: '8. UTF-16LE Unicode',
-    description: '[icon] [UTF-16LE text]',
-  },
+  { id: 'standard', label: '1. Standard UTF-8', description: '[icon] [text]' },
+  { id: 'v2_version_01', label: '2. V2 Flag 0x01', description: '[icon] [0x01] [text]' },
+  { id: 'v2_version_02', label: '3. V2 Flag 0x02', description: '[icon] [0x02] [text]' },
+  { id: 'v2_header', label: '4. V2 Flag 0x00', description: '[icon] [0x00] [text]' },
+  { id: 'split_len', label: '5. Split Length', description: '[icon] [tLen] [title] [bLen] [body]' },
+  { id: 'split_title', label: '6. Split NUL', description: '[icon] [title] [0x00] [body] [0x00]' },
+  { id: 'nul', label: '7. Null-Terminated', description: '[icon] [text] [0x00]' },
+  { id: 'length_prefixed', label: '8. Length-Prefixed', description: '[icon] [len] [text]' },
+  { id: 'utf16le', label: '9. UTF-16LE', description: '[icon] [utf16le]' },
+  { id: 'utf16be', label: '10. UTF-16BE', description: '[icon] [utf16be]' },
+  { id: 'newline_split', label: '11. Newline Split', description: '[icon] [title] [\\n] [body]' },
+  { id: 'split_title_notrail', label: '12. Split NUL (No Trail)', description: '[icon] [title] [0x00] [body]' },
+  { id: 'high_bit_icon', label: '13. Extended Icon', description: '[icon|0x80] [text]' },
+  { id: 'high_bit_v2_00', label: '14. Extended Icon 0x00', description: '[icon|0x80] [0x00] [text]' },
+  { id: 'high_bit_v2_01', label: '15. Extended Icon 0x01', description: '[icon|0x80] [0x01] [text]' },
+  { id: 'v2_flag01_split_nul', label: '16. V2 0x01 + Split NUL', description: '[icon] [0x01] [title] [0] [body] [0]' },
+  { id: 'v2_flag02_split_nul', label: '17. V2 0x02 + Split NUL', description: '[icon] [0x02] [title] [0] [body] [0]' },
+  { id: 'v2_flag00_split_nul', label: '18. V2 0x00 + Split NUL', description: '[icon] [0x00] [title] [0] [body] [0]' },
+  { id: 'v2_flag01_split_len', label: '19. V2 0x01 + Split Len', description: '[icon] [0x01] [tLen] [title] [bLen] [body]' },
+  { id: 'v2_flag00_len_utf8', label: '20. V2 0x00 + Len', description: '[icon] [0x00] [len] [text]' },
+  { id: 'v2_flag01_len_utf8', label: '21. V2 0x01 + Len', description: '[icon] [0x01] [len] [text]' },
+  { id: 'action01_icon', label: '22. Action 0x01 First', description: '[0x01] [icon] [text]' },
+  { id: 'action00_icon', label: '23. Action 0x00 First', description: '[0x00] [icon] [text]' },
+  { id: 'action01_icon_len', label: '24. Action 0x01 + Len', description: '[0x01] [icon] [len] [text]' },
+  { id: 'paged_01_01', label: '25. Paged 1/1', description: '[icon] [0x01] [0x01] [text]' },
+  { id: 'header_00_01', label: '26. Header 00 01', description: '[icon] [0x00] [0x01] [text]' },
+  { id: 'header_01_00', label: '27. Header 01 00', description: '[icon] [0x01] [0x00] [text]' },
+  { id: 'header_00_00', label: '28. Header 00 00', description: '[icon] [0x00] [0x00] [text]' },
+  { id: 'v1_frame_standard', label: '29. V1 Frame Standard', description: 'FE EA 10 LL 64 [icon] [text]' },
+  { id: 'v1_frame_split_nul', label: '30. V1 Frame Split NUL', description: 'FE EA 10 LL 64 [icon] [title] 0 [body] 0' },
+  { id: 'payload_len_only', label: '31. Payload-Only Length', description: 'FE EA 20 payLen 64 [icon] [text]' },
+  { id: 'raw_no_header', label: '32. Raw Unframed 0x64', description: '64 [icon] [text]' },
+  { id: 'icon16be_v2_01', label: '33. 16-bit Icon + 0x01', description: '[0x00] [icon] [0x01] [text]' },
+  { id: 'icon_len16be_utf8', label: '34. 16-bit Len BE', description: '[icon] [lenHi] [lenLo] [text]' },
+  { id: 'utf16le_nul', label: '35. UTF-16LE + NUL', description: '[icon] [utf16le] [0x00] [0x00]' },
+  { id: 'v2_flag01_utf16le', label: '36. V2 0x01 + UTF-16LE', description: '[icon] [0x01] [utf16le]' },
 ];
 
 export interface WatchAppPreset {
@@ -329,6 +353,29 @@ function encodeUtf16Le(input: string, maxBytes: number): Uint8Array {
   return out;
 }
 
+function encodeUtf16Be(input: string, maxBytes: number): Uint8Array {
+  const safeMax = Math.max(2, maxBytes - (maxBytes % 2));
+  const codeUnits = Math.min(input.length, Math.floor(safeMax / 2));
+  const out = new Uint8Array(codeUnits * 2);
+  for (let i = 0; i < codeUnits; i += 1) {
+    const unit = input.charCodeAt(i);
+    out[i * 2] = (unit >> 8) & 0xff;
+    out[i * 2 + 1] = unit & 0xff;
+  }
+  return out;
+}
+
+function concatBytes(...parts: Array<Uint8Array | number[]>): Uint8Array {
+  const total = parts.reduce((sum, p) => sum + p.length, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const part of parts) {
+    out.set(part, offset);
+    offset += part.length;
+  }
+  return out;
+}
+
 export function getNotificationMetrics(
   title: string,
   body: string,
@@ -336,16 +383,15 @@ export function getNotificationMetrics(
   format: NotificationFormat = 'standard'
 ): { utf8Bytes: number; truncatedBytes: number; chunks: number } {
   const formatted = formatNotificationText(title, body);
-  const fullBytes =
-    format === 'utf16le' ? formatted.length * 2 : textEncoder.encode(formatted).length;
+  const isUtf16 =
+    format === 'utf16le' ||
+    format === 'utf16be' ||
+    format === 'utf16le_nul' ||
+    format === 'v2_flag01_utf16le';
+  const fullBytes = isUtf16 ? formatted.length * 2 : textEncoder.encode(formatted).length;
   const capped = Math.min(128, fullBytes);
-  const extraOverhead =
-    format === 'standard' || format === 'utf16le'
-      ? 0
-      : format === 'split_title' || format === 'split_len'
-      ? 2
-      : 1;
-  const frameSize = 6 + extraOverhead + capped;
+  const baseOverhead = format === 'raw_no_header' ? 2 : 6;
+  const frameSize = baseOverhead + 2 + capped;
   const safeMtu = Math.max(20, mtuSize);
   return {
     utf8Bytes: fullBytes,
@@ -364,91 +410,165 @@ export function encodeNotification(
 ): Uint8Array {
   const clampedMax = Math.max(16, Math.min(240, maxUtf8Bytes));
   const wireIcon = iconId & 0xff;
+  const highBitIcon = (wireIcon | 0x80) & 0xff;
 
-  if (format === 'split_len') {
-    const titleStr = title.trim() || 'Alert';
-    const bodyStr = body.trim();
-    const titleBytes = truncateUtf8(titleStr, Math.min(48, clampedMax - 4));
-    const remaining = Math.max(0, clampedMax - titleBytes.length - 2);
-    const bodyBytes = bodyStr ? truncateUtf8(bodyStr, remaining) : new Uint8Array(0);
-    const payload = new Uint8Array(1 + 1 + titleBytes.length + 1 + bodyBytes.length);
-    let idx = 0;
-    payload[idx++] = wireIcon;
-    payload[idx++] = titleBytes.length & 0xff;
-    payload.set(titleBytes, idx);
-    idx += titleBytes.length;
-    payload[idx++] = bodyBytes.length & 0xff;
-    payload.set(bodyBytes, idx);
-    return framePacket(version, FEEA_CMD.PUSH_NOTIFICATION, payload);
-  }
-
-  if (format === 'split_title') {
-    const titleStr = title.trim() || 'Alert';
-    const bodyStr = body.trim();
-    const titleBytes = truncateUtf8(titleStr, Math.min(48, clampedMax - 4));
-    const remaining = Math.max(0, clampedMax - titleBytes.length - 2);
-    const bodyBytes = bodyStr ? truncateUtf8(bodyStr, remaining) : new Uint8Array(0);
-    const payload = new Uint8Array(1 + titleBytes.length + 1 + bodyBytes.length + 1);
-    let idx = 0;
-    payload[idx++] = wireIcon;
-    payload.set(titleBytes, idx);
-    idx += titleBytes.length;
-    payload[idx++] = 0x00;
-    payload.set(bodyBytes, idx);
-    idx += bodyBytes.length;
-    payload[idx] = 0x00;
-    return framePacket(version, FEEA_CMD.PUSH_NOTIFICATION, payload);
-  }
-
+  const trimmedTitle = title.trim();
+  const trimmedBody = body.trim();
+  const effectiveTitle = trimmedTitle || 'Alert';
   const formatted = formatNotificationText(title, body);
-
-  if (format === 'utf16le') {
-    const u16 = encodeUtf16Le(formatted, clampedMax);
-    const payload = new Uint8Array(1 + u16.length);
-    payload[0] = wireIcon;
-    payload.set(u16, 1);
-    return framePacket(version, FEEA_CMD.PUSH_NOTIFICATION, payload);
-  }
-
   const textBytes = truncateUtf8(formatted, clampedMax);
 
-  if (format === 'v2_version_01') {
-    const payload = new Uint8Array(2 + textBytes.length);
-    payload[0] = wireIcon;
-    payload[1] = 0x01;
-    payload.set(textBytes, 2);
-    return framePacket(version, FEEA_CMD.PUSH_NOTIFICATION, payload);
-  }
+  const makeSplitNul = (prefix: number[], trailingNul: boolean): Uint8Array => {
+    const titleBytes = truncateUtf8(effectiveTitle, Math.min(48, clampedMax - 4));
+    const overhead = prefix.length + 1 + (trailingNul ? 1 : 0);
+    const remaining = Math.max(0, clampedMax - titleBytes.length - overhead);
+    const bodyBytes = trimmedBody ? truncateUtf8(trimmedBody, remaining) : new Uint8Array(0);
+    return concatBytes(
+      [wireIcon, ...prefix],
+      titleBytes,
+      [0x00],
+      bodyBytes,
+      trailingNul ? [0x00] : []
+    );
+  };
 
-  if (format === 'nul') {
-    const payload = new Uint8Array(1 + textBytes.length + 1);
-    payload[0] = wireIcon;
-    payload.set(textBytes, 1);
-    payload[1 + textBytes.length] = 0x00;
-    return framePacket(version, FEEA_CMD.PUSH_NOTIFICATION, payload);
-  }
+  const makeSplitLen = (prefix: number[]): Uint8Array => {
+    const titleBytes = truncateUtf8(effectiveTitle, Math.min(48, clampedMax - 4));
+    const overhead = prefix.length + 3;
+    const remaining = Math.max(0, clampedMax - titleBytes.length - overhead);
+    const bodyBytes = trimmedBody ? truncateUtf8(trimmedBody, remaining) : new Uint8Array(0);
+    return concatBytes(
+      [wireIcon, ...prefix, titleBytes.length & 0xff],
+      titleBytes,
+      [bodyBytes.length & 0xff],
+      bodyBytes
+    );
+  };
 
-  if (format === 'v2_header') {
-    const payload = new Uint8Array(2 + textBytes.length);
-    payload[0] = wireIcon;
-    payload[1] = 0x00;
-    payload.set(textBytes, 2);
-    return framePacket(version, FEEA_CMD.PUSH_NOTIFICATION, payload);
+  switch (format) {
+    case 'v2_version_01':
+      return framePacket(version, FEEA_CMD.PUSH_NOTIFICATION, concatBytes([wireIcon, 0x01], textBytes));
+    case 'v2_version_02':
+      return framePacket(version, FEEA_CMD.PUSH_NOTIFICATION, concatBytes([wireIcon, 0x02], textBytes));
+    case 'v2_header':
+      return framePacket(version, FEEA_CMD.PUSH_NOTIFICATION, concatBytes([wireIcon, 0x00], textBytes));
+    case 'split_len':
+      return framePacket(version, FEEA_CMD.PUSH_NOTIFICATION, makeSplitLen([]));
+    case 'split_title':
+      return framePacket(version, FEEA_CMD.PUSH_NOTIFICATION, makeSplitNul([], true));
+    case 'nul':
+      return framePacket(version, FEEA_CMD.PUSH_NOTIFICATION, concatBytes([wireIcon], textBytes, [0x00]));
+    case 'length_prefixed':
+      return framePacket(
+        version,
+        FEEA_CMD.PUSH_NOTIFICATION,
+        concatBytes([wireIcon, textBytes.length & 0xff], textBytes)
+      );
+    case 'utf16le':
+      return framePacket(
+        version,
+        FEEA_CMD.PUSH_NOTIFICATION,
+        concatBytes([wireIcon], encodeUtf16Le(formatted, clampedMax))
+      );
+    case 'utf16be':
+      return framePacket(
+        version,
+        FEEA_CMD.PUSH_NOTIFICATION,
+        concatBytes([wireIcon], encodeUtf16Be(formatted, clampedMax))
+      );
+    case 'newline_split': {
+      const nl = trimmedTitle && trimmedBody ? `${trimmedTitle}\n${trimmedBody}` : formatted;
+      return framePacket(
+        version,
+        FEEA_CMD.PUSH_NOTIFICATION,
+        concatBytes([wireIcon], truncateUtf8(nl, clampedMax))
+      );
+    }
+    case 'split_title_notrail':
+      return framePacket(version, FEEA_CMD.PUSH_NOTIFICATION, makeSplitNul([], false));
+    case 'high_bit_icon':
+      return framePacket(version, FEEA_CMD.PUSH_NOTIFICATION, concatBytes([highBitIcon], textBytes));
+    case 'high_bit_v2_00':
+      return framePacket(version, FEEA_CMD.PUSH_NOTIFICATION, concatBytes([highBitIcon, 0x00], textBytes));
+    case 'high_bit_v2_01':
+      return framePacket(version, FEEA_CMD.PUSH_NOTIFICATION, concatBytes([highBitIcon, 0x01], textBytes));
+    case 'v2_flag01_split_nul':
+      return framePacket(version, FEEA_CMD.PUSH_NOTIFICATION, makeSplitNul([0x01], true));
+    case 'v2_flag02_split_nul':
+      return framePacket(version, FEEA_CMD.PUSH_NOTIFICATION, makeSplitNul([0x02], true));
+    case 'v2_flag00_split_nul':
+      return framePacket(version, FEEA_CMD.PUSH_NOTIFICATION, makeSplitNul([0x00], true));
+    case 'v2_flag01_split_len':
+      return framePacket(version, FEEA_CMD.PUSH_NOTIFICATION, makeSplitLen([0x01]));
+    case 'v2_flag00_len_utf8':
+      return framePacket(
+        version,
+        FEEA_CMD.PUSH_NOTIFICATION,
+        concatBytes([wireIcon, 0x00, textBytes.length & 0xff], textBytes)
+      );
+    case 'v2_flag01_len_utf8':
+      return framePacket(
+        version,
+        FEEA_CMD.PUSH_NOTIFICATION,
+        concatBytes([wireIcon, 0x01, textBytes.length & 0xff], textBytes)
+      );
+    case 'action01_icon':
+      return framePacket(version, FEEA_CMD.PUSH_NOTIFICATION, concatBytes([0x01, wireIcon], textBytes));
+    case 'action00_icon':
+      return framePacket(version, FEEA_CMD.PUSH_NOTIFICATION, concatBytes([0x00, wireIcon], textBytes));
+    case 'action01_icon_len':
+      return framePacket(
+        version,
+        FEEA_CMD.PUSH_NOTIFICATION,
+        concatBytes([0x01, wireIcon, textBytes.length & 0xff], textBytes)
+      );
+    case 'paged_01_01':
+      return framePacket(version, FEEA_CMD.PUSH_NOTIFICATION, concatBytes([wireIcon, 0x01, 0x01], textBytes));
+    case 'header_00_01':
+      return framePacket(version, FEEA_CMD.PUSH_NOTIFICATION, concatBytes([wireIcon, 0x00, 0x01], textBytes));
+    case 'header_01_00':
+      return framePacket(version, FEEA_CMD.PUSH_NOTIFICATION, concatBytes([wireIcon, 0x01, 0x00], textBytes));
+    case 'header_00_00':
+      return framePacket(version, FEEA_CMD.PUSH_NOTIFICATION, concatBytes([wireIcon, 0x00, 0x00], textBytes));
+    case 'v1_frame_standard':
+      return framePacket('v1', FEEA_CMD.PUSH_NOTIFICATION, concatBytes([wireIcon], textBytes));
+    case 'v1_frame_split_nul':
+      return framePacket('v1', FEEA_CMD.PUSH_NOTIFICATION, makeSplitNul([], true));
+    case 'payload_len_only': {
+      const payload = concatBytes([wireIcon], textBytes);
+      const payLen = Math.min(4095, payload.length);
+      const prefix = version === 'v1' ? 0x10 : 0x20;
+      return concatBytes(
+        [0xfe, 0xea, (prefix + ((payLen >> 8) & 0x0f)) & 0xff, payLen & 0xff, FEEA_CMD.PUSH_NOTIFICATION],
+        payload
+      );
+    }
+    case 'raw_no_header':
+      return concatBytes([FEEA_CMD.PUSH_NOTIFICATION, wireIcon], textBytes);
+    case 'icon16be_v2_01':
+      return framePacket(version, FEEA_CMD.PUSH_NOTIFICATION, concatBytes([0x00, wireIcon, 0x01], textBytes));
+    case 'icon_len16be_utf8':
+      return framePacket(
+        version,
+        FEEA_CMD.PUSH_NOTIFICATION,
+        concatBytes([wireIcon, (textBytes.length >> 8) & 0xff, textBytes.length & 0xff], textBytes)
+      );
+    case 'utf16le_nul':
+      return framePacket(
+        version,
+        FEEA_CMD.PUSH_NOTIFICATION,
+        concatBytes([wireIcon], encodeUtf16Le(formatted, clampedMax), [0x00, 0x00])
+      );
+    case 'v2_flag01_utf16le':
+      return framePacket(
+        version,
+        FEEA_CMD.PUSH_NOTIFICATION,
+        concatBytes([wireIcon, 0x01], encodeUtf16Le(formatted, clampedMax))
+      );
+    case 'standard':
+    default:
+      return framePacket(version, FEEA_CMD.PUSH_NOTIFICATION, concatBytes([wireIcon], textBytes));
   }
-
-  if (format === 'length_prefixed') {
-    const payload = new Uint8Array(2 + textBytes.length);
-    payload[0] = wireIcon;
-    payload[1] = textBytes.length & 0xff;
-    payload.set(textBytes, 2);
-    return framePacket(version, FEEA_CMD.PUSH_NOTIFICATION, payload);
-  }
-
-  // Default 0xFEEA 0x64 notification payload: [iconId (1B)] [UTF-8 text bytes...]
-  const payload = new Uint8Array(1 + textBytes.length);
-  payload[0] = wireIcon;
-  payload.set(textBytes, 1);
-  return framePacket(version, FEEA_CMD.PUSH_NOTIFICATION, payload);
 }
 
 export function encodeStandardNewAlert(

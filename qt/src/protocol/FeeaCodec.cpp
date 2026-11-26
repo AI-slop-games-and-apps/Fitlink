@@ -274,7 +274,7 @@ static QByteArray truncateUtf8(const QString &input, int maxBytes) {
 
 static QByteArray encodeUtf16Le(const QString &input, int maxBytes) {
     const int safeMax = std::max(2, maxBytes - (maxBytes % 2));
-    const int codeUnits = std::min<int>(input.size(), safeMax / 2);
+    const int codeUnits = std::min<int>(static_cast<int>(input.size()), safeMax / 2);
     QByteArray out;
     out.reserve(codeUnits * 2);
     for (int i = 0; i < codeUnits; ++i) {
@@ -285,6 +285,71 @@ static QByteArray encodeUtf16Le(const QString &input, int maxBytes) {
     return out;
 }
 
+static QByteArray encodeUtf16Be(const QString &input, int maxBytes) {
+    const int safeMax = std::max(2, maxBytes - (maxBytes % 2));
+    const int codeUnits = std::min<int>(static_cast<int>(input.size()), safeMax / 2);
+    QByteArray out;
+    out.reserve(codeUnits * 2);
+    for (int i = 0; i < codeUnits; ++i) {
+        const uint16_t u = input.at(i).unicode();
+        out.append(static_cast<char>((u >> 8) & 0xFF));
+        out.append(static_cast<char>(u & 0xFF));
+    }
+    return out;
+}
+
+QString FeeaCodec::notificationFormatLabel(NotificationFormat format) {
+    static const char *labels[NotificationFormatCount] = {
+        "1. Standard UTF-8 [icon, text]",
+        "2. V2 Flag 0x01 [icon, 0x01, text]",
+        "3. V2 Flag 0x02 [icon, 0x02, text]",
+        "4. V2 Flag 0x00 [icon, 0x00, text]",
+        "5. Split Length [icon, tLen, title, bLen, body]",
+        "6. Split NUL [icon, title, 0x00, body, 0x00]",
+        "7. Null-Terminated [icon, text, 0x00]",
+        "8. Length-Prefixed [icon, len, text]",
+        "9. UTF-16LE [icon, utf16le]",
+        "10. UTF-16BE [icon, utf16be]",
+        "11. Newline Split [icon, title, \\n, body]",
+        "12. Split NUL (No Trail) [icon, title, 0x00, body]",
+        "13. Extended Icon [icon|0x80, text]",
+        "14. Extended Icon 0x00 [icon|0x80, 0x00, text]",
+        "15. Extended Icon 0x01 [icon|0x80, 0x01, text]",
+        "16. V2 0x01 + Split NUL [icon, 0x01, title, 0, body, 0]",
+        "17. V2 0x02 + Split NUL [icon, 0x02, title, 0, body, 0]",
+        "18. V2 0x00 + Split NUL [icon, 0x00, title, 0, body, 0]",
+        "19. V2 0x01 + Split Len [icon, 0x01, tLen, title, bLen, body]",
+        "20. V2 0x00 + Len [icon, 0x00, len, text]",
+        "21. V2 0x01 + Len [icon, 0x01, len, text]",
+        "22. Action 0x01 First [0x01, icon, text]",
+        "23. Action 0x00 First [0x00, icon, text]",
+        "24. Action 0x01 + Len [0x01, icon, len, text]",
+        "25. Paged 1/1 [icon, 0x01, 0x01, text]",
+        "26. Header 00 01 [icon, 0x00, 0x01, text]",
+        "27. Header 01 00 [icon, 0x01, 0x00, text]",
+        "28. Header 00 00 [icon, 0x00, 0x00, text]",
+        "29. V1 Frame Standard [FE EA 10 LL 64 icon text]",
+        "30. V1 Frame Split NUL [FE EA 10 LL 64 icon title 0 body 0]",
+        "31. Payload-Only Length [FE EA 20 payLen 64 icon text]",
+        "32. Raw Unframed 0x64 [64, icon, text]",
+        "33. 16-bit Icon + 0x01 [0x00, icon, 0x01, text]",
+        "34. 16-bit Len BE [icon, lenHi, lenLo, text]",
+        "35. UTF-16LE + NUL [icon, utf16le, 0x00, 0x00]",
+        "36. V2 0x01 + UTF-16LE [icon, 0x01, utf16le]"
+    };
+    const int idx = std::clamp(static_cast<int>(format), 0, NotificationFormatCount - 1);
+    return QString::fromLatin1(labels[idx]);
+}
+
+QStringList FeeaCodec::notificationFormatLabels() {
+    QStringList list;
+    list.reserve(NotificationFormatCount);
+    for (int i = 0; i < NotificationFormatCount; ++i) {
+        list.append(notificationFormatLabel(static_cast<NotificationFormat>(i)));
+    }
+    return list;
+}
+
 QByteArray FeeaCodec::encodeNotification(ProtocolVersion version,
                                          WatchAppIcon icon,
                                          const QString &title,
@@ -293,39 +358,11 @@ QByteArray FeeaCodec::encodeNotification(ProtocolVersion version,
                                          NotificationFormat format) {
     const int clampedMax = std::clamp(maxUtf8Bytes, 16, 240);
     const uint8_t wireIcon = static_cast<uint8_t>(icon);
+    const uint8_t highBitIcon = static_cast<uint8_t>(wireIcon | 0x80);
 
     const QString trimmedTitle = title.trimmed();
     const QString trimmedBody = body.trimmed();
-
-    if (format == NotificationFormat::SplitLen) {
-        const QString effectiveTitle = trimmedTitle.isEmpty() ? QStringLiteral("Alert") : trimmedTitle;
-        const QByteArray titleBytes = truncateUtf8(effectiveTitle, std::min(48, clampedMax - 4));
-        const int remaining = std::max(0, clampedMax - static_cast<int>(titleBytes.size()) - 3);
-        const QByteArray bodyBytes = trimmedBody.isEmpty() ? QByteArray() : truncateUtf8(trimmedBody, remaining);
-        QByteArray payload;
-        payload.reserve(3 + titleBytes.size() + bodyBytes.size());
-        payload.append(static_cast<char>(wireIcon));
-        payload.append(static_cast<char>(static_cast<int>(titleBytes.size()) & 0xFF));
-        payload.append(titleBytes);
-        payload.append(static_cast<char>(static_cast<int>(bodyBytes.size()) & 0xFF));
-        payload.append(bodyBytes);
-        return framePacket(version, CmdPushNotification, payload);
-    }
-
-    if (format == NotificationFormat::SplitTitle) {
-        const QString effectiveTitle = trimmedTitle.isEmpty() ? QStringLiteral("Alert") : trimmedTitle;
-        const QByteArray titleBytes = truncateUtf8(effectiveTitle, std::min(48, clampedMax - 4));
-        const int remaining = std::max(0, clampedMax - static_cast<int>(titleBytes.size()) - 2);
-        const QByteArray bodyBytes = trimmedBody.isEmpty() ? QByteArray() : truncateUtf8(trimmedBody, remaining);
-        QByteArray payload;
-        payload.reserve(1 + titleBytes.size() + 1 + bodyBytes.size() + 1);
-        payload.append(static_cast<char>(wireIcon));
-        payload.append(titleBytes);
-        payload.append('\0');
-        payload.append(bodyBytes);
-        payload.append('\0');
-        return framePacket(version, CmdPushNotification, payload);
-    }
+    const QString effectiveTitle = trimmedTitle.isEmpty() ? QStringLiteral("Alert") : trimmedTitle;
 
     QString formatted;
     if (!trimmedTitle.isEmpty() && !trimmedBody.isEmpty()) {
@@ -336,46 +373,233 @@ QByteArray FeeaCodec::encodeNotification(ProtocolVersion version,
         formatted = trimmedBody;
     }
 
-    if (format == NotificationFormat::Utf16Le) {
-        const QByteArray u16 = encodeUtf16Le(formatted, clampedMax);
-        QByteArray payload;
-        payload.reserve(1 + u16.size());
-        payload.append(static_cast<char>(wireIcon));
-        payload.append(u16);
-        return framePacket(version, CmdPushNotification, payload);
-    }
+    auto makeSplitNul = [&](bool hasPrefix, uint8_t prefixByte, bool trailingNul) {
+        const QByteArray titleBytes = truncateUtf8(effectiveTitle, std::min(48, clampedMax - 4));
+        const int overhead = (hasPrefix ? 1 : 0) + 1 + (trailingNul ? 1 : 0);
+        const int remaining = std::max(0, clampedMax - static_cast<int>(titleBytes.size()) - overhead);
+        const QByteArray bodyBytes = trimmedBody.isEmpty() ? QByteArray() : truncateUtf8(trimmedBody, remaining);
+        QByteArray p;
+        p.reserve(1 + overhead + static_cast<int>(titleBytes.size()) + static_cast<int>(bodyBytes.size()));
+        p.append(static_cast<char>(wireIcon));
+        if (hasPrefix) {
+            p.append(static_cast<char>(prefixByte));
+        }
+        p.append(titleBytes);
+        p.append('\0');
+        p.append(bodyBytes);
+        if (trailingNul) {
+            p.append('\0');
+        }
+        return p;
+    };
+
+    auto makeSplitLen = [&](bool hasPrefix, uint8_t prefixByte) {
+        const QByteArray titleBytes = truncateUtf8(effectiveTitle, std::min(48, clampedMax - 4));
+        const int overhead = (hasPrefix ? 4 : 3);
+        const int remaining = std::max(0, clampedMax - static_cast<int>(titleBytes.size()) - overhead);
+        const QByteArray bodyBytes = trimmedBody.isEmpty() ? QByteArray() : truncateUtf8(trimmedBody, remaining);
+        QByteArray p;
+        p.reserve(overhead + static_cast<int>(titleBytes.size()) + static_cast<int>(bodyBytes.size()));
+        p.append(static_cast<char>(wireIcon));
+        if (hasPrefix) {
+            p.append(static_cast<char>(prefixByte));
+        }
+        p.append(static_cast<char>(static_cast<int>(titleBytes.size()) & 0xFF));
+        p.append(titleBytes);
+        p.append(static_cast<char>(static_cast<int>(bodyBytes.size()) & 0xFF));
+        p.append(bodyBytes);
+        return p;
+    };
 
     const QByteArray textBytes = truncateUtf8(formatted, clampedMax);
     QByteArray payload;
 
     switch (format) {
     case NotificationFormat::V2Version01:
-        payload.reserve(2 + textBytes.size());
         payload.append(static_cast<char>(wireIcon));
         payload.append(static_cast<char>(0x01));
         payload.append(textBytes);
         break;
+    case NotificationFormat::V2Version02:
+        payload.append(static_cast<char>(wireIcon));
+        payload.append(static_cast<char>(0x02));
+        payload.append(textBytes);
+        break;
     case NotificationFormat::V2Header:
-        payload.reserve(2 + textBytes.size());
         payload.append(static_cast<char>(wireIcon));
         payload.append('\0');
         payload.append(textBytes);
         break;
+    case NotificationFormat::SplitLen:
+        payload = makeSplitLen(false, 0x00);
+        break;
+    case NotificationFormat::SplitTitle:
+        payload = makeSplitNul(false, 0x00, true);
+        break;
     case NotificationFormat::NulTerminated:
-        payload.reserve(2 + textBytes.size());
         payload.append(static_cast<char>(wireIcon));
         payload.append(textBytes);
         payload.append('\0');
         break;
     case NotificationFormat::LengthPrefixed:
-        payload.reserve(2 + textBytes.size());
         payload.append(static_cast<char>(wireIcon));
         payload.append(static_cast<char>(static_cast<int>(textBytes.size()) & 0xFF));
         payload.append(textBytes);
         break;
+    case NotificationFormat::Utf16Le:
+        payload.append(static_cast<char>(wireIcon));
+        payload.append(encodeUtf16Le(formatted, clampedMax));
+        break;
+    case NotificationFormat::Utf16Be:
+        payload.append(static_cast<char>(wireIcon));
+        payload.append(encodeUtf16Be(formatted, clampedMax));
+        break;
+    case NotificationFormat::NewlineSplit: {
+        const QString nlText = (!trimmedTitle.isEmpty() && !trimmedBody.isEmpty())
+            ? trimmedTitle + QStringLiteral("\n") + trimmedBody
+            : formatted;
+        payload.append(static_cast<char>(wireIcon));
+        payload.append(truncateUtf8(nlText, clampedMax));
+        break;
+    }
+    case NotificationFormat::SplitTitleNoTrail:
+        payload = makeSplitNul(false, 0x00, false);
+        break;
+    case NotificationFormat::HighBitIcon:
+        payload.append(static_cast<char>(highBitIcon));
+        payload.append(textBytes);
+        break;
+    case NotificationFormat::HighBitV2Header00:
+        payload.append(static_cast<char>(highBitIcon));
+        payload.append('\0');
+        payload.append(textBytes);
+        break;
+    case NotificationFormat::HighBitV2Version01:
+        payload.append(static_cast<char>(highBitIcon));
+        payload.append(static_cast<char>(0x01));
+        payload.append(textBytes);
+        break;
+    case NotificationFormat::V2Flag01SplitNul:
+        payload = makeSplitNul(true, 0x01, true);
+        break;
+    case NotificationFormat::V2Flag02SplitNul:
+        payload = makeSplitNul(true, 0x02, true);
+        break;
+    case NotificationFormat::V2Flag00SplitNul:
+        payload = makeSplitNul(true, 0x00, true);
+        break;
+    case NotificationFormat::V2Flag01SplitLen:
+        payload = makeSplitLen(true, 0x01);
+        break;
+    case NotificationFormat::V2Flag00LenUtf8:
+        payload.append(static_cast<char>(wireIcon));
+        payload.append('\0');
+        payload.append(static_cast<char>(static_cast<int>(textBytes.size()) & 0xFF));
+        payload.append(textBytes);
+        break;
+    case NotificationFormat::V2Flag01LenUtf8:
+        payload.append(static_cast<char>(wireIcon));
+        payload.append(static_cast<char>(0x01));
+        payload.append(static_cast<char>(static_cast<int>(textBytes.size()) & 0xFF));
+        payload.append(textBytes);
+        break;
+    case NotificationFormat::Action01Icon:
+        payload.append(static_cast<char>(0x01));
+        payload.append(static_cast<char>(wireIcon));
+        payload.append(textBytes);
+        break;
+    case NotificationFormat::Action00Icon:
+        payload.append('\0');
+        payload.append(static_cast<char>(wireIcon));
+        payload.append(textBytes);
+        break;
+    case NotificationFormat::Action01IconLen:
+        payload.append(static_cast<char>(0x01));
+        payload.append(static_cast<char>(wireIcon));
+        payload.append(static_cast<char>(static_cast<int>(textBytes.size()) & 0xFF));
+        payload.append(textBytes);
+        break;
+    case NotificationFormat::Paged0101:
+        payload.append(static_cast<char>(wireIcon));
+        payload.append(static_cast<char>(0x01));
+        payload.append(static_cast<char>(0x01));
+        payload.append(textBytes);
+        break;
+    case NotificationFormat::Header0001:
+        payload.append(static_cast<char>(wireIcon));
+        payload.append('\0');
+        payload.append(static_cast<char>(0x01));
+        payload.append(textBytes);
+        break;
+    case NotificationFormat::Header0100:
+        payload.append(static_cast<char>(wireIcon));
+        payload.append(static_cast<char>(0x01));
+        payload.append('\0');
+        payload.append(textBytes);
+        break;
+    case NotificationFormat::Header0000:
+        payload.append(static_cast<char>(wireIcon));
+        payload.append('\0');
+        payload.append('\0');
+        payload.append(textBytes);
+        break;
+    case NotificationFormat::V1FrameStandard:
+        payload.append(static_cast<char>(wireIcon));
+        payload.append(textBytes);
+        return framePacket(ProtocolVersion::V1, CmdPushNotification, payload);
+    case NotificationFormat::V1FrameSplitNul:
+        payload = makeSplitNul(false, 0x00, true);
+        return framePacket(ProtocolVersion::V1, CmdPushNotification, payload);
+    case NotificationFormat::PayloadLenOnly: {
+        payload.append(static_cast<char>(wireIcon));
+        payload.append(textBytes);
+        const uint16_t payLen = static_cast<uint16_t>(std::min<int>(4095, static_cast<int>(payload.size())));
+        const uint8_t versionPrefix = (version == ProtocolVersion::V1) ? V1Prefix : V2Prefix;
+        QByteArray out;
+        out.reserve(5 + payload.size());
+        out.append(static_cast<char>(HeaderByte0));
+        out.append(static_cast<char>(HeaderByte1));
+        out.append(static_cast<char>(versionPrefix + ((payLen >> 8) & 0x0F)));
+        out.append(static_cast<char>(payLen & 0xFF));
+        out.append(static_cast<char>(CmdPushNotification));
+        out.append(payload);
+        return out;
+    }
+    case NotificationFormat::RawNoHeader: {
+        QByteArray out;
+        out.reserve(2 + textBytes.size());
+        out.append(static_cast<char>(CmdPushNotification));
+        out.append(static_cast<char>(wireIcon));
+        out.append(textBytes);
+        return out;
+    }
+    case NotificationFormat::Icon16BeV2Flag01:
+        payload.append('\0');
+        payload.append(static_cast<char>(wireIcon));
+        payload.append(static_cast<char>(0x01));
+        payload.append(textBytes);
+        break;
+    case NotificationFormat::IconLen16BeUtf8: {
+        const int len = static_cast<int>(textBytes.size());
+        payload.append(static_cast<char>(wireIcon));
+        payload.append(static_cast<char>((len >> 8) & 0xFF));
+        payload.append(static_cast<char>(len & 0xFF));
+        payload.append(textBytes);
+        break;
+    }
+    case NotificationFormat::Utf16LeNul:
+        payload.append(static_cast<char>(wireIcon));
+        payload.append(encodeUtf16Le(formatted, clampedMax));
+        payload.append('\0');
+        payload.append('\0');
+        break;
+    case NotificationFormat::V2Flag01Utf16Le:
+        payload.append(static_cast<char>(wireIcon));
+        payload.append(static_cast<char>(0x01));
+        payload.append(encodeUtf16Le(formatted, clampedMax));
+        break;
     case NotificationFormat::Standard:
     default:
-        payload.reserve(1 + textBytes.size());
         payload.append(static_cast<char>(wireIcon));
         payload.append(textBytes);
         break;

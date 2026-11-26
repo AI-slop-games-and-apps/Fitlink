@@ -38,6 +38,8 @@ interface NotificationsViewProps {
   hasAlertNotificationService: boolean;
   packetLog: PacketLogEntry[];
   isTestingFormats: boolean;
+  formatTestStatus: string;
+  onStopFormatTest: () => void;
   onTestAllFormats: (iconId: number, title: string, body: string) => void;
   osPlatformMode: 'linux' | 'android';
   onChangeOsPlatformMode: (mode: 'linux' | 'android') => void;
@@ -86,6 +88,8 @@ export function NotificationsView({
   hasAlertNotificationService,
   packetLog,
   isTestingFormats,
+  formatTestStatus,
+  onStopFormatTest,
   onTestAllFormats,
   osPlatformMode,
   onChangeOsPlatformMode,
@@ -413,6 +417,12 @@ export function NotificationsView({
                   )}
                 </div>
 
+                {isTestingFormats && formatTestStatus && (
+                  <div className="rounded-xl border border-[#BFDBFE] bg-[#EFF6FF] px-3.5 py-2.5 text-xs font-medium text-[#1D4ED8]">
+                    {formatTestStatus}
+                  </div>
+                )}
+
                 <div className="flex flex-wrap items-center gap-3 pt-1">
                   <button
                     type="submit"
@@ -442,18 +452,30 @@ export function NotificationsView({
                   </button>
                   <button
                     type="button"
-                    disabled={!isConnected || isTestingFormats}
-                    onClick={() =>
-                      onTestAllFormats(
-                        iconId,
-                        title.trim() || 'FitLink',
-                        body.trim() || 'Hi'
-                      )
-                    }
-                    className="inline-flex h-10 items-center gap-2 rounded-xl border border-[#CBD5E1] bg-white px-4 text-sm font-medium text-[#0F172A] transition-colors hover:bg-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-50 whitespace-nowrap"
+                    disabled={!isConnected && !isTestingFormats}
+                    onClick={() => {
+                      if (isTestingFormats) {
+                        onStopFormatTest();
+                      } else {
+                        onTestAllFormats(
+                          iconId,
+                          title.trim() || 'FitLink',
+                          body.trim() || 'Hi'
+                        );
+                      }
+                    }}
+                    className={`inline-flex h-10 items-center gap-2 rounded-xl border px-4 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 whitespace-nowrap ${
+                      isTestingFormats
+                        ? 'border-[#FCA5A5] bg-[#FEE2E2] text-[#DC2626] hover:bg-[#FECACA]'
+                        : 'border-[#CBD5E1] bg-white text-[#0F172A] hover:bg-[#F8FAFC]'
+                    }`}
                   >
                     <FlaskConical className="h-4 w-4" />
-                    <span>{isTestingFormats ? 'Testing Formats...' : 'Test All Formats (1–8)'}</span>
+                    <span>
+                      {isTestingFormats
+                        ? 'Stop Formula Test'
+                        : `Test All Formulas (1–${NOTIFICATION_FORMAT_OPTIONS.length})`}
+                    </span>
                   </button>
                   <button
                     type="button"

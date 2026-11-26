@@ -1105,16 +1105,19 @@ bool BleWatchManager::sendNotification(WatchAppIcon icon,
         version,
         m_deviceInfo.value(QStringLiteral("firmware")).toString()
     );
-    const auto activeFormat = (formatOverride >= 0 && formatOverride <= 7)
+    const auto activeFormat = (formatOverride >= 0 && formatOverride < NotificationFormatCount)
         ? static_cast<NotificationFormat>(formatOverride)
         : m_notificationFormat;
     const QByteArray packet = FeeaCodec::encodeNotification(
         version, icon, title, body, maxTextBytes, activeFormat
     );
-    const bool sent = enqueuePacket(packet, tr("Push Notification (0x64)"));
+    const QString label = (formatOverride >= 0 && formatOverride < NotificationFormatCount)
+        ? tr("Formula #%1 (0x64)").arg(formatOverride + 1)
+        : tr("Push Notification (0x64)");
+    const bool sent = enqueuePacket(packet, label);
 
     // Also push via standard BLE Alert Notification Service (0x1811 / 0x2A46) if the watch exposes it
-    if (sent && m_alertNotificationService && m_newAlertChar.isValid()
+    if (sent && formatOverride <= 0 && m_alertNotificationService && m_newAlertChar.isValid()
         && (m_newAlertChar.properties() & (QLowEnergyCharacteristic::Write | QLowEnergyCharacteristic::WriteNoResponse))) {
         const QByteArray ansPayload = FeeaCodec::encodeStandardNewAlert(icon, title, body);
         GattOp op;

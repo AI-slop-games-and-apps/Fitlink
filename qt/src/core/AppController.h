@@ -44,6 +44,9 @@ class AppController : public QObject {
     Q_PROPERTY(bool osBridgeHasPermission READ osBridgeHasPermission NOTIFY mirroringChanged)
     Q_PROPERTY(bool osMirroringEnabled READ osMirroringEnabled WRITE setOsMirroringEnabled NOTIFY mirroringChanged)
     Q_PROPERTY(int notificationFormat READ notificationFormat WRITE setNotificationFormat NOTIFY notificationFormatChanged)
+    Q_PROPERTY(QStringList notificationFormatLabels READ notificationFormatLabels CONSTANT)
+    Q_PROPERTY(bool isTestingFormats READ isTestingFormats NOTIFY formatTestChanged)
+    Q_PROPERTY(QString formatTestStatus READ formatTestStatus NOTIFY formatTestChanged)
     Q_PROPERTY(bool preferWriteNoResponse READ preferWriteNoResponse WRITE setPreferWriteNoResponse NOTIFY protocolChanged)
     Q_PROPERTY(bool hasAlertNotificationService READ hasAlertNotificationService NOTIFY protocolChanged)
     Q_PROPERTY(QVariantList appFilters READ appFilters NOTIFY appFiltersChanged)
@@ -113,6 +116,9 @@ public:
     void setOsMirroringEnabled(bool enabled);
     int notificationFormat() const;
     void setNotificationFormat(int format);
+    QStringList notificationFormatLabels() const;
+    bool isTestingFormats() const { return m_isTestingFormats; }
+    QString formatTestStatus() const { return m_formatTestStatus; }
     bool preferWriteNoResponse() const;
     void setPreferWriteNoResponse(bool prefer);
     bool hasAlertNotificationService() const;
@@ -161,6 +167,7 @@ public:
     // Notification actions
     Q_INVOKABLE void sendManualNotification(int iconId, const QString &title, const QString &body);
     Q_INVOKABLE void testAllNotificationFormats(int iconId, const QString &title, const QString &body);
+    Q_INVOKABLE void stopFormatTest();
     Q_INVOKABLE int utf8ByteLength(const QString &title, const QString &body) const;
     Q_INVOKABLE int estimatedChunkCount(const QString &title, const QString &body) const;
 
@@ -204,6 +211,7 @@ signals:
     void timeSettingsChanged();
     void mirroringChanged();
     void notificationFormatChanged();
+    void formatTestChanged();
     void appFiltersChanged();
     void templatesChanged();
     void scheduledAlertsChanged();
@@ -243,6 +251,14 @@ private:
     QTimer m_hrMeasureTimer;
     QTimer m_spo2MeasureTimer;
     QTimer m_bpMeasureTimer;
+    QTimer m_formatTestTimer;
+
+    bool m_isTestingFormats = false;
+    int m_formatTestIndex = 0;
+    WatchAppIcon m_formatTestIcon = WatchAppIcon::Sms;
+    QString m_formatTestTitle;
+    QString m_formatTestBody;
+    QString m_formatTestStatus;
 
     bool m_use24Hour = true;
     bool m_autoSyncOnConnect = false;
