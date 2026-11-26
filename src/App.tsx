@@ -742,6 +742,26 @@ export default function App() {
         chunkCount: 0,
         status: 'ack',
       });
+      if (result.discoveredServicesSummary) {
+        appendLog({
+          direction: 'system',
+          actionLabel: 'GATT Services',
+          protocolLabel: formatProtocolLabel(resolved),
+          hexPreview: result.discoveredServicesSummary,
+          chunkCount: 0,
+          status: 'ack',
+        });
+      }
+      if (result.feeaCharacteristicsSummary) {
+        appendLog({
+          direction: 'system',
+          actionLabel: '0xFEEA Characteristics',
+          protocolLabel: formatProtocolLabel(resolved),
+          hexPreview: result.feeaCharacteristicsSummary,
+          chunkCount: 0,
+          status: 'ack',
+        });
+      }
       setConnectDialogOpen(false);
       showToast(`Connected to ${result.deviceName}`);
     },

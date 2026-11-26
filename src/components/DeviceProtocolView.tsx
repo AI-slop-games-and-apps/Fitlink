@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronDown, RotateCcw, Trash2 } from 'lucide-react';
+import { Check, ChevronDown, Copy, RotateCcw, Trash2 } from 'lucide-react';
 import {
   formatProtocolLabel,
   resolveProtocolVersion,
@@ -26,6 +26,7 @@ export function DeviceProtocolView({
 }: DeviceProtocolViewProps) {
   const [logFilter, setLogFilter] = useState<'all' | 'tx' | 'rx' | 'system'>('all');
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [copiedLog, setCopiedLog] = useState(false);
 
   const isDefaultBleTuning = watch.mtuSize === 20 && watch.writeDelayMs === 50;
 
@@ -245,6 +246,25 @@ export function DeviceProtocolView({
                 </button>
               ))}
             </div>
+
+            <button
+              type="button"
+              disabled={filteredLog.length === 0}
+              onClick={() => {
+                const lines = filteredLog.map(
+                  (e) =>
+                    `${e.timestamp}\t${e.direction}\t${e.actionLabel}\t${e.hexPreview}\t${e.chunkCount}`
+                );
+                void navigator.clipboard?.writeText(lines.join('\n')).then(() => {
+                  setCopiedLog(true);
+                  window.setTimeout(() => setCopiedLog(false), 1800);
+                });
+              }}
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium text-[#64748B] hover:bg-[#F1F5F9] hover:text-[#0F172A] disabled:cursor-not-allowed disabled:opacity-40 whitespace-nowrap"
+            >
+              {copiedLog ? <Check className="h-3.5 w-3.5 text-[#16A34A]" /> : <Copy className="h-3.5 w-3.5" />}
+              <span>{copiedLog ? 'Copied' : 'Copy'}</span>
+            </button>
 
             <button
               type="button"

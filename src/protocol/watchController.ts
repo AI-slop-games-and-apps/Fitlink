@@ -28,6 +28,8 @@ export interface BleConnectionResult {
   deviceInfo: WatchDeviceInfo;
   detectedProtocol: ProtocolVersion;
   isVirtual: boolean;
+  discoveredServicesSummary?: string;
+  feeaCharacteristicsSummary?: string;
 }
 
 // Minimal Web Bluetooth structural types to avoid global DOM type dependency gaps
@@ -48,6 +50,7 @@ interface WebBleCharacteristic {
 }
 
 interface WebBleService {
+  uuid?: string;
   getCharacteristic(uuid: string | number): Promise<WebBleCharacteristic>;
   getCharacteristics(): Promise<WebBleCharacteristic[]>;
 }
@@ -57,6 +60,7 @@ interface WebBleGattServer {
   connect(): Promise<WebBleGattServer>;
   disconnect(): void;
   getPrimaryService(uuid: string | number): Promise<WebBleService>;
+  getPrimaryServices?(): Promise<WebBleService[]>;
 }
 
 interface WebBleDevice {
@@ -152,6 +156,12 @@ export class WebBleWatchSession {
       GATT_UUIDS.SERVICE_ALERT_NOTIFICATION,
       GATT_UUIDS.SERVICE_HEART_RATE,
       GATT_UUIDS.SERVICE_PULSE_OXIMETER,
+      0xfeef,
+      0xfee0,
+      0xfee7,
+      0xff00,
+      0xfff0,
+      '6e400001-b5a3-f393-e0a9-e50e24dcca9e',
     ];
 
     const requestOptions = showAllDevices
@@ -205,10 +215,34 @@ export class WebBleWatchSession {
       // Optional on some watches
     }
 
+    let discoveredServicesSummary = '';
+    try {
+      if (gatt.getPrimaryServices) {
+        const services = await gatt.getPrimaryServices();
+        discoveredServicesSummary = services
+          .map((s) => (s.uuid ? s.uuid.slice(0, 8).toUpperCase() : '?'))
+          .join(', ');
+      }
+    } catch {
+      // Optional depending on browser Web Bluetooth implementation
+    }
+
     // 2. Discover 0xFEEA BLE service (0xFEE1 activity, 0xFEE2 write, 0xFEE3 notify)
+    let feeaCharacteristicsSummary = '';
     try {
       const feeaSvc = await gatt.getPrimaryService(GATT_UUIDS.SERVICE_FEEA);
       const chars = await feeaSvc.getCharacteristics();
+
+      feeaCharacteristicsSummary = chars
+        .map((c) => {
+          const props: string[] = [];
+          if (c.properties.read) props.push('R');
+          if (c.properties.write) props.push('W');
+          if (c.properties.writeWithoutResponse) props.push('WNR');
+          if (c.properties.notify) props.push('N');
+          return `${c.uuid.slice(0, 8).toUpperCase()}[${props.join(',')}]`;
+        })
+        .join(' ');
 
       this.activityChar = chars.find((c) => c.uuid === GATT_UUIDS.CHAR_ACTIVITY) ?? null;
       this.dataOutChar =
@@ -245,8 +279,31 @@ export class WebBleWatchSession {
               const target = ev.target as unknown as { value?: DataView };
               if (target?.value) {
                 const bytes = new Uint8Array(target.value.buffer, target.value.byteOffset, target.value.byteLength);
-                this.onDataReceived?.(bytesToHex(bytes));
+                this.onDataReceived?.(bytesToHex(bytes), 'Activity Telemetry (0xFEE1)');
                 this.dispatchParsedHealth(parseFee1Activity(bytes));
+              }
+            });
+          } catch {
+            // Non-fatal
+          }
+        }
+      }
+
+      // Subscribe to any additional notify characteristics inside 0xFEEA so auxiliary replies are visible
+      for (const ch of chars) {
+        if (
+          ch.uuid !== dataInChar?.uuid &&
+          ch.uuid !== this.activityChar?.uuid &&
+          ch.properties.notify
+        ) {
+          try {
+            const shortUuid = ch.uuid.slice(4, 8).toUpperCase();
+            await ch.startNotifications();
+            ch.addEventListener('characteristicvaluechanged', (ev: Event) => {
+              const target = ev.target as unknown as { value?: DataView };
+              if (target?.value) {
+                const bytes = new Uint8Array(target.value.buffer, target.value.byteOffset, target.value.byteLength);
+                this.onDataReceived?.(bytesToHex(bytes), `Aux Notify (0x${shortUuid})`);
               }
             });
           } catch {
@@ -355,6 +412,8 @@ export class WebBleWatchSession {
       deviceInfo,
       detectedProtocol: detectProtocolFromManufacturer(deviceInfo.manufacturer),
       isVirtual: false,
+      discoveredServicesSummary,
+      feeaCharacteristicsSummary,
     };
   }
 
