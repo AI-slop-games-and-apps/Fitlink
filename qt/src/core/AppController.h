@@ -73,6 +73,9 @@ class AppController : public QObject {
     Q_PROPERTY(QString lastActivitySyncText READ lastActivitySyncText NOTIFY activityChanged)
     Q_PROPERTY(bool isSyncingActivity READ isSyncingActivity NOTIFY activityChanged)
     Q_PROPERTY(bool isMeasuringHeartRate READ isMeasuringHeartRate NOTIFY activityChanged)
+    Q_PROPERTY(bool isContinuousHeartRate READ isContinuousHeartRate NOTIFY activityChanged)
+    Q_PROPERTY(int continuousHeartRateStep READ continuousHeartRateStep NOTIFY activityChanged)
+    Q_PROPERTY(int continuousHeartRateTotal READ continuousHeartRateTotal NOTIFY activityChanged)
     Q_PROPERTY(bool isMeasuringSpo2 READ isMeasuringSpo2 NOTIFY activityChanged)
     Q_PROPERTY(bool isMeasuringBloodPressure READ isMeasuringBloodPressure NOTIFY activityChanged)
 
@@ -148,6 +151,9 @@ public:
     QString lastActivitySyncText() const;
     bool isSyncingActivity() const { return m_isSyncingActivity; }
     bool isMeasuringHeartRate() const { return m_isMeasuringHeartRate; }
+    bool isContinuousHeartRate() const { return m_isContinuousHeartRate; }
+    int continuousHeartRateStep() const { return m_hrContinuousStep; }
+    int continuousHeartRateTotal() const { return kContinuousHrReadings; }
     bool isMeasuringSpo2() const { return m_isMeasuringSpo2; }
     bool isMeasuringBloodPressure() const { return m_isMeasuringBloodPressure; }
 
@@ -194,6 +200,7 @@ public:
     // Activity & Vitals actions
     Q_INVOKABLE void refreshActivity();
     Q_INVOKABLE void measureHeartRate();
+    Q_INVOKABLE void stopContinuousHeartRate();
     Q_INVOKABLE void measureSpo2();
     Q_INVOKABLE void measureBloodPressure();
     Q_INVOKABLE QString formatDistance(int meters) const;
@@ -242,13 +249,18 @@ private:
     void savePersistedState() const;
     void seedDefaultFiltersAndTemplates();
     void ensureCurrentWeekBuckets();
+    bool startSingleHeartRateReading(bool silentToast);
+    void resetContinuousHeartRate(bool notifyUser);
     QString stateFilePath() const;
     qint64 computeNextRunMs(const QString &mode, const QString &targetHHMM, int intervalMinutes) const;
+
+    static constexpr int kContinuousHrReadings = 4;
 
     BleWatchManager *m_ble = nullptr;
     PlatformNotificationBridge *m_osBridge = nullptr;
     QTimer m_schedulerTimer;
     QTimer m_hrMeasureTimer;
+    QTimer m_hrLoopDelayTimer;
     QTimer m_spo2MeasureTimer;
     QTimer m_bpMeasureTimer;
     QTimer m_formatTestTimer;
@@ -280,6 +292,9 @@ private:
     QDateTime m_lastActivitySyncedAt;
     bool m_isSyncingActivity = false;
     bool m_isMeasuringHeartRate = false;
+    bool m_isContinuousHeartRate = false;
+    int m_hrContinuousStep = 0;
+    QList<qint64> m_hrTapTimestamps;
     bool m_isMeasuringSpo2 = false;
     bool m_isMeasuringBloodPressure = false;
 

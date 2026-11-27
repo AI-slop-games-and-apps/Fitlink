@@ -808,7 +808,7 @@ ScrollView {
                         AbstractButton {
                             id: measureHrBtn
                             padding: 0
-                            enabled: appController.isConnected && !appController.isMeasuringHeartRate
+                            enabled: appController.isConnected
                             implicitHeight: 42
                             implicitWidth: Math.max(122, measureHrRow.implicitWidth + 28)
                             onClicked: appController.measureHeartRate()
@@ -825,10 +825,72 @@ ScrollView {
                                     FitIcon { anchors.verticalCenter: parent.verticalCenter; name: "heart"; size: 16; color: "#FFFFFF" }
                                     Label {
                                         anchors.verticalCenter: parent.verticalCenter
-                                        text: appController.isMeasuringHeartRate ? qsTr("Measuring...") : qsTr("Measure")
+                                        text: appController.isContinuousHeartRate
+                                              ? qsTr("Reading %1/%2").arg(appController.continuousHeartRateStep).arg(appController.continuousHeartRateTotal)
+                                              : (appController.isMeasuringHeartRate ? qsTr("Measuring...") : qsTr("Measure"))
                                         font.pixelSize: 14
                                         font.weight: Font.DemiBold
                                         color: "#FFFFFF"
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        visible: appController.isContinuousHeartRate
+                        implicitHeight: continuousHrRow.implicitHeight + 16
+                        radius: 10
+                        color: "#FEF2F2"
+                        border.color: "#FECACA"
+                        border.width: 1
+
+                        RowLayout {
+                            id: continuousHrRow
+                            anchors.fill: parent
+                            anchors.margins: 8
+                            spacing: 8
+
+                            Rectangle {
+                                width: 8
+                                height: 8
+                                radius: 4
+                                color: "#DC2626"
+                                Layout.alignment: Qt.AlignVCenter
+                            }
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: qsTr("Continuous monitoring active · Reading %1 of %2")
+                                      .arg(appController.continuousHeartRateStep)
+                                      .arg(appController.continuousHeartRateTotal)
+                                font.pixelSize: 12
+                                font.weight: Font.DemiBold
+                                color: "#991B1B"
+                                wrapMode: Text.WordWrap
+                            }
+
+                            AbstractButton {
+                                id: stopContinuousHrBtn
+                                padding: 0
+                                implicitHeight: 28
+                                implicitWidth: stopContinuousHrLbl.implicitWidth + 18
+                                onClicked: appController.stopContinuousHeartRate()
+                                background: Rectangle {
+                                    radius: 6
+                                    color: stopContinuousHrBtn.pressed ? "#FEE2E2" : "#FFFFFF"
+                                    border.color: "#FCA5A5"
+                                    border.width: 1
+                                }
+                                contentItem: Item {
+                                    Label {
+                                        id: stopContinuousHrLbl
+                                        anchors.centerIn: parent
+                                        text: qsTr("Stop")
+                                        font.pixelSize: 12
+                                        font.weight: Font.DemiBold
+                                        color: "#B91C1C"
                                     }
                                 }
                             }

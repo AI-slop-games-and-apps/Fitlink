@@ -18,6 +18,7 @@
 #include <QTime>
 #include <QUuid>
 #include <algorithm>
+#include <utility>
 
 namespace fitlink {
 
@@ -61,11 +62,35 @@ AppController::AppController(QObject *parent)
     m_schedulerTimer.start();
 
     m_hrMeasureTimer.setSingleShot(true);
-    m_hrMeasureTimer.setInterval(30000);
+    m_hrMeasureTimer.setInterval(75000);
     connect(&m_hrMeasureTimer, &QTimer::timeout, this, [this]() {
+        bool changed = false;
         if (m_isMeasuringHeartRate) {
             m_isMeasuringHeartRate = false;
+            changed = true;
+        }
+        if (m_isContinuousHeartRate) {
+            m_hrLoopDelayTimer.stop();
+            m_isContinuousHeartRate = false;
+            m_hrContinuousStep = 0;
+            m_hrTapTimestamps.clear();
+            changed = true;
+            emit toastMessage(tr("Heart rate reading timed out — continuous monitoring stopped"), true);
+        }
+        if (changed) {
             emit activityChanged();
+        }
+    });
+
+    m_hrLoopDelayTimer.setSingleShot(true);
+    m_hrLoopDelayTimer.setInterval(1000);
+    connect(&m_hrLoopDelayTimer, &QTimer::timeout, this, [this]() {
+        if (!m_isContinuousHeartRate || !isConnected()) {
+            resetContinuousHeartRate(false);
+            return;
+        }
+        if (!startSingleHeartRateReading(true)) {
+            resetContinuousHeartRate(false);
         }
     });
 
@@ -617,17 +642,77 @@ void AppController::refreshActivity() {
     });
 }
 
-void AppController::measureHeartRate() {
+bool AppController::startSingleHeartRateReading(bool silentToast) {
     if (!isConnected()) {
-        emit toastMessage(tr("Connect a watch before measuring heart rate"), true);
-        return;
+        return false;
     }
     if (m_ble->requestHeartRateReading()) {
         m_isMeasuringHeartRate = true;
         m_hrMeasureTimer.start();
         emit activityChanged();
-        emit toastMessage(tr("Heart rate reading started on watch"), false);
+        if (!silentToast) {
+            emit toastMessage(tr("Heart rate reading started on watch"), false);
+        }
+        return true;
     }
+    return false;
+}
+
+void AppController::resetContinuousHeartRate(bool notifyUser) {
+    m_hrLoopDelayTimer.stop();
+    m_hrTapTimestamps.clear();
+    const bool wasActive = m_isContinuousHeartRate;
+    m_isContinuousHeartRate = false;
+    m_hrContinuousStep = 0;
+    if (wasActive) {
+        emit activityChanged();
+        if (notifyUser) {
+            emit toastMessage(tr("Continuous heart rate monitoring stopped"), false);
+        }
+    }
+}
+
+void AppController::stopContinuousHeartRate() {
+    resetContinuousHeartRate(true);
+}
+
+void AppController::measureHeartRate() {
+    if (!isConnected()) {
+        emit toastMessage(tr("Connect a watch before measuring heart rate"), true);
+        return;
+    }
+
+    const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+    QList<qint64> recentTaps;
+    for (qint64 ts : std::as_const(m_hrTapTimestamps)) {
+        if (nowMs - ts <= 2500) {
+            recentTaps.append(ts);
+        }
+    }
+    recentTaps.append(nowMs);
+    m_hrTapTimestamps = recentTaps;
+
+    // 3 or 4 rapid taps activate the 4-reading continuous monitoring loop
+    if (static_cast<int>(m_hrTapTimestamps.size()) >= 3 && !m_isContinuousHeartRate) {
+        m_hrTapTimestamps.clear();
+        m_isContinuousHeartRate = true;
+        m_hrContinuousStep = 1;
+        emit activityChanged();
+        emit toastMessage(tr("Continuous monitoring active (%1 readings)").arg(kContinuousHrReadings), false);
+        if (!m_isMeasuringHeartRate) {
+            if (!startSingleHeartRateReading(true)) {
+                resetContinuousHeartRate(false);
+            }
+        }
+        return;
+    }
+
+    // Ignore extra rapid taps (e.g., 4th tap) while already measuring or looping
+    if (m_isContinuousHeartRate || m_isMeasuringHeartRate) {
+        return;
+    }
+
+    startSingleHeartRateReading(false);
 }
 
 void AppController::measureSpo2() {
@@ -664,6 +749,13 @@ void AppController::onBleStateChanged(BleWatchManager::ConnectionState state) {
         if (m_isMeasuringHeartRate) {
             m_hrMeasureTimer.stop();
             m_isMeasuringHeartRate = false;
+            changed = true;
+        }
+        if (m_isContinuousHeartRate || m_hrLoopDelayTimer.isActive()) {
+            m_hrLoopDelayTimer.stop();
+            m_isContinuousHeartRate = false;
+            m_hrContinuousStep = 0;
+            m_hrTapTimestamps.clear();
             changed = true;
         }
         if (m_isMeasuringSpo2) {
@@ -715,6 +807,7 @@ void AppController::onHeartRateReceived(int bpm) {
     if (bpm < 30 || bpm > 220) {
         return;
     }
+    const bool wasMeasuring = m_isMeasuringHeartRate;
     m_hrMeasureTimer.stop();
     m_isMeasuringHeartRate = false;
     m_latestHeartRate = bpm;
@@ -724,6 +817,22 @@ void AppController::onHeartRateReceived(int bpm) {
         m_heartRateSamples.removeFirst();
     }
     m_lastActivitySyncedAt = m_heartRateUpdatedAt;
+
+    if (m_isContinuousHeartRate && wasMeasuring && !m_hrLoopDelayTimer.isActive()) {
+        if (m_hrContinuousStep < kContinuousHrReadings && isConnected()) {
+            m_hrContinuousStep += 1;
+            m_hrLoopDelayTimer.start();
+        } else {
+            m_hrLoopDelayTimer.stop();
+            m_isContinuousHeartRate = false;
+            m_hrContinuousStep = 0;
+            emit toastMessage(
+                tr("Continuous heart rate monitoring complete (%1/%1)").arg(kContinuousHrReadings),
+                false
+            );
+        }
+    }
+
     emit activityChanged();
     savePersistedState();
 }

@@ -21,6 +21,9 @@ interface ActivityViewProps {
   isConnected: boolean;
   isSyncing: boolean;
   isMeasuringHeartRate: boolean;
+  isContinuousHeartRate: boolean;
+  continuousHeartRateStep: number;
+  continuousHeartRateTotal: number;
   isMeasuringSpo2: boolean;
   isMeasuringBloodPressure: boolean;
   activity: ActivityState;
@@ -29,6 +32,7 @@ interface ActivityViewProps {
   todayDistanceMeters: number | null;
   onRefresh: () => void;
   onMeasureHeartRate: () => void;
+  onStopContinuousHeartRate: () => void;
   onMeasureSpo2: () => void;
   onMeasureBloodPressure: () => void;
   onChangeUnit: (unit: DistanceUnit) => void;
@@ -110,6 +114,9 @@ export function ActivityView({
   isConnected,
   isSyncing,
   isMeasuringHeartRate,
+  isContinuousHeartRate,
+  continuousHeartRateStep,
+  continuousHeartRateTotal,
   isMeasuringSpo2,
   isMeasuringBloodPressure,
   activity,
@@ -118,6 +125,7 @@ export function ActivityView({
   todayDistanceMeters,
   onRefresh,
   onMeasureHeartRate,
+  onStopContinuousHeartRate,
   onMeasureSpo2,
   onMeasureBloodPressure,
   onChangeUnit,
@@ -525,13 +533,43 @@ export function ActivityView({
                 <button
                   type="button"
                   onClick={onMeasureHeartRate}
-                  disabled={!isConnected || isMeasuringHeartRate}
+                  disabled={!isConnected}
+                  title="Tap once for a single reading, or tap 3–4 times for continuous monitoring"
                   className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#DC2626] px-3 text-xs font-medium text-white transition-colors hover:bg-[#B91C1C] disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#DC2626] whitespace-nowrap shrink-0"
                 >
-                  <HeartPulse className={`h-3.5 w-3.5 ${isMeasuringHeartRate ? 'animate-pulse' : ''}`} />
-                  <span>{isMeasuringHeartRate ? 'Measuring...' : 'Measure'}</span>
+                  <HeartPulse
+                    className={`h-3.5 w-3.5 ${
+                      isMeasuringHeartRate || isContinuousHeartRate ? 'animate-pulse' : ''
+                    }`}
+                  />
+                  <span>
+                    {isContinuousHeartRate
+                      ? `Reading ${continuousHeartRateStep}/${continuousHeartRateTotal}`
+                      : isMeasuringHeartRate
+                      ? 'Measuring...'
+                      : 'Measure'}
+                  </span>
                 </button>
               </div>
+
+              {isContinuousHeartRate && (
+                <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-[#FECACA] bg-[#FEF2F2] px-3 py-2">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-[#DC2626]" />
+                    <span className="truncate text-xs font-semibold text-[#991B1B]">
+                      Continuous monitoring active · Reading {continuousHeartRateStep} of{' '}
+                      {continuousHeartRateTotal}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={onStopContinuousHeartRate}
+                    className="shrink-0 rounded-md border border-[#FCA5A5] bg-white px-2.5 py-1 text-[11px] font-semibold text-[#B91C1C] transition-colors hover:bg-[#FEE2E2] focus-visible:outline-2 focus-visible:outline-[#DC2626]"
+                  >
+                    Stop
+                  </button>
+                </div>
+              )}
 
               <div className="mt-5 flex items-baseline justify-between gap-4">
                 <div className="flex items-baseline gap-1.5">

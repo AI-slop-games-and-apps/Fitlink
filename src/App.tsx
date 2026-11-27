@@ -321,11 +321,21 @@ export default function App() {
   const [activityState, setActivityState] = useState<ActivityState>(initial.activityState);
   const [isSyncingActivity, setIsSyncingActivity] = useState(false);
   const [isMeasuringHeartRate, setIsMeasuringHeartRate] = useState(false);
+  const [isContinuousHeartRate, setIsContinuousHeartRate] = useState(false);
+  const [continuousHeartRateStep, setContinuousHeartRateStep] = useState(0);
   const [isMeasuringSpo2, setIsMeasuringSpo2] = useState(false);
   const [isMeasuringBloodPressure, setIsMeasuringBloodPressure] = useState(false);
   const hrTimerRef = useRef<number | null>(null);
+  const hrLoopTimerRef = useRef<number | null>(null);
+  const hrTapTimestampsRef = useRef<number[]>([]);
+  const hrMeasuringRef = useRef(false);
+  const hrContinuousRef = useRef<{ active: boolean; step: number }>({ active: false, step: 0 });
+  const triggerHeartRateReadingRef = useRef<(silentToast?: boolean) => Promise<boolean>>(
+    async () => false
+  );
   const spo2TimerRef = useRef<number | null>(null);
   const bpTimerRef = useRef<number | null>(null);
+  const CONTINUOUS_HR_TOTAL = 4;
 
   const [isVibrating, setIsVibrating] = useState(false);
   const [activeWatchBanner, setActiveWatchBanner] = useState<WatchAlertBanner | null>(null);
@@ -401,6 +411,15 @@ export default function App() {
         window.clearTimeout(hrTimerRef.current);
         hrTimerRef.current = null;
       }
+      if (hrLoopTimerRef.current !== null) {
+        window.clearTimeout(hrLoopTimerRef.current);
+        hrLoopTimerRef.current = null;
+      }
+      hrTapTimestampsRef.current = [];
+      hrMeasuringRef.current = false;
+      hrContinuousRef.current = { active: false, step: 0 };
+      setIsContinuousHeartRate(false);
+      setContinuousHeartRateStep(0);
       if (spo2TimerRef.current !== null) {
         window.clearTimeout(spo2TimerRef.current);
         spo2TimerRef.current = null;
@@ -467,10 +486,12 @@ export default function App() {
       });
     };
     session.onHeartRateReceived = (bpm) => {
+      const wasMeasuring = hrMeasuringRef.current;
       if (hrTimerRef.current !== null) {
         window.clearTimeout(hrTimerRef.current);
         hrTimerRef.current = null;
       }
+      hrMeasuringRef.current = false;
       setIsMeasuringHeartRate(false);
       const stamped = formatShortTime();
       setActivityState((prev) => ({
@@ -480,6 +501,24 @@ export default function App() {
         heartRateSamples: [...prev.heartRateSamples, bpm].slice(-12),
         lastActivitySyncedAt: stamped,
       }));
+
+      if (hrContinuousRef.current.active && wasMeasuring && hrLoopTimerRef.current === null) {
+        if (hrContinuousRef.current.step < CONTINUOUS_HR_TOTAL) {
+          const nextStep = hrContinuousRef.current.step + 1;
+          hrContinuousRef.current = { active: true, step: nextStep };
+          setContinuousHeartRateStep(nextStep);
+          hrLoopTimerRef.current = window.setTimeout(() => {
+            hrLoopTimerRef.current = null;
+            if (!hrContinuousRef.current.active) return;
+            void triggerHeartRateReadingRef.current(true);
+          }, 1000);
+        } else {
+          hrContinuousRef.current = { active: false, step: 0 };
+          setIsContinuousHeartRate(false);
+          setContinuousHeartRateStep(0);
+          showToast(`Continuous heart rate monitoring complete (${CONTINUOUS_HR_TOTAL}/${CONTINUOUS_HR_TOTAL})`);
+        }
+      }
     };
     session.onSpo2Received = (spo2) => {
       if (spo2TimerRef.current !== null) {
@@ -634,35 +673,108 @@ export default function App() {
     [showToast, transmitPacket, watch.detectedProtocol, watch.isConnected, watch.protocolPreference]
   );
 
+  const stopContinuousHeartRate = useCallback(
+    (notify = true) => {
+      if (hrLoopTimerRef.current !== null) {
+        window.clearTimeout(hrLoopTimerRef.current);
+        hrLoopTimerRef.current = null;
+      }
+      hrTapTimestampsRef.current = [];
+      const wasActive = hrContinuousRef.current.active;
+      hrContinuousRef.current = { active: false, step: 0 };
+      setIsContinuousHeartRate(false);
+      setContinuousHeartRateStep(0);
+      if (wasActive && notify) {
+        showToast('Continuous heart rate monitoring stopped');
+      }
+    },
+    [showToast]
+  );
+
+  const triggerSingleHeartRateReading = useCallback(
+    async (silentToast = false): Promise<boolean> => {
+      if (!watch.isConnected) {
+        stopContinuousHeartRate(false);
+        return false;
+      }
+      const resolved = resolveProtocolVersion(watch.detectedProtocol, watch.protocolPreference);
+      hrMeasuringRef.current = true;
+      setIsMeasuringHeartRate(true);
+      if (hrTimerRef.current !== null) {
+        window.clearTimeout(hrTimerRef.current);
+      }
+      hrTimerRef.current = window.setTimeout(() => {
+        hrMeasuringRef.current = false;
+        setIsMeasuringHeartRate(false);
+        hrTimerRef.current = null;
+        if (hrContinuousRef.current.active) {
+          stopContinuousHeartRate(false);
+          showToast('Heart rate reading timed out — continuous monitoring stopped', true);
+        }
+      }, 75_000);
+      const ok = await transmitPacket(
+        'Measure Heart Rate (0x6D)',
+        encodeMeasureHeartRate(resolved),
+        resolved
+      );
+      if (ok) {
+        if (!silentToast) {
+          showToast('Heart rate reading started on watch');
+        }
+        return true;
+      }
+      if (hrTimerRef.current !== null) {
+        window.clearTimeout(hrTimerRef.current);
+        hrTimerRef.current = null;
+      }
+      hrMeasuringRef.current = false;
+      setIsMeasuringHeartRate(false);
+      stopContinuousHeartRate(false);
+      return false;
+    },
+    [
+      showToast,
+      stopContinuousHeartRate,
+      transmitPacket,
+      watch.detectedProtocol,
+      watch.isConnected,
+      watch.protocolPreference,
+    ]
+  );
+
+  triggerHeartRateReadingRef.current = triggerSingleHeartRateReading;
+
   const handleMeasureHeartRate = useCallback(async () => {
     if (!watch.isConnected) {
       showToast('Connect a watch before measuring heart rate', true);
       return;
     }
-    const resolved = resolveProtocolVersion(watch.detectedProtocol, watch.protocolPreference);
-    setIsMeasuringHeartRate(true);
-    if (hrTimerRef.current !== null) {
-      window.clearTimeout(hrTimerRef.current);
-    }
-    hrTimerRef.current = window.setTimeout(() => {
-      setIsMeasuringHeartRate(false);
-      hrTimerRef.current = null;
-    }, 30_000);
-    const ok = await transmitPacket(
-      'Measure Heart Rate (0x6D)',
-      encodeMeasureHeartRate(resolved),
-      resolved
-    );
-    if (ok) {
-      showToast('Heart rate reading started on watch');
-    } else {
-      if (hrTimerRef.current !== null) {
-        window.clearTimeout(hrTimerRef.current);
-        hrTimerRef.current = null;
+
+    const now = Date.now();
+    const recentTaps = hrTapTimestampsRef.current.filter((t) => now - t <= 2500);
+    recentTaps.push(now);
+    hrTapTimestampsRef.current = recentTaps;
+
+    // 3 or 4 rapid taps activate the 4-reading continuous monitoring loop
+    if (recentTaps.length >= 3 && !hrContinuousRef.current.active) {
+      hrTapTimestampsRef.current = [];
+      hrContinuousRef.current = { active: true, step: 1 };
+      setIsContinuousHeartRate(true);
+      setContinuousHeartRateStep(1);
+      showToast(`Continuous monitoring active (${CONTINUOUS_HR_TOTAL} readings)`);
+      if (!hrMeasuringRef.current) {
+        await triggerSingleHeartRateReading(true);
       }
-      setIsMeasuringHeartRate(false);
+      return;
     }
-  }, [showToast, transmitPacket, watch.detectedProtocol, watch.isConnected, watch.protocolPreference]);
+
+    // Ignore additional rapid taps (e.g., 4th tap) while already measuring or looping
+    if (hrContinuousRef.current.active || hrMeasuringRef.current) {
+      return;
+    }
+
+    await triggerSingleHeartRateReading(false);
+  }, [showToast, triggerSingleHeartRateReading, watch.isConnected]);
 
   const handleMeasureSpo2 = useCallback(async () => {
     if (!watch.isConnected) {
@@ -799,6 +911,15 @@ export default function App() {
       window.clearTimeout(hrTimerRef.current);
       hrTimerRef.current = null;
     }
+    if (hrLoopTimerRef.current !== null) {
+      window.clearTimeout(hrLoopTimerRef.current);
+      hrLoopTimerRef.current = null;
+    }
+    hrTapTimestampsRef.current = [];
+    hrMeasuringRef.current = false;
+    hrContinuousRef.current = { active: false, step: 0 };
+    setIsContinuousHeartRate(false);
+    setContinuousHeartRateStep(0);
     if (spo2TimerRef.current !== null) {
       window.clearTimeout(spo2TimerRef.current);
       spo2TimerRef.current = null;
@@ -1137,6 +1258,9 @@ export default function App() {
               isConnected={watch.isConnected}
               isSyncing={isSyncingActivity}
               isMeasuringHeartRate={isMeasuringHeartRate}
+              isContinuousHeartRate={isContinuousHeartRate}
+              continuousHeartRateStep={continuousHeartRateStep}
+              continuousHeartRateTotal={CONTINUOUS_HR_TOTAL}
               isMeasuringSpo2={isMeasuringSpo2}
               isMeasuringBloodPressure={isMeasuringBloodPressure}
               activity={activityState}
@@ -1145,6 +1269,7 @@ export default function App() {
               todayDistanceMeters={todayDistanceMeters}
               onRefresh={() => void handleRefreshActivity()}
               onMeasureHeartRate={() => void handleMeasureHeartRate()}
+              onStopContinuousHeartRate={() => stopContinuousHeartRate(true)}
               onMeasureSpo2={() => void handleMeasureSpo2()}
               onMeasureBloodPressure={() => void handleMeasureBloodPressure()}
               onChangeUnit={(distanceUnit) =>
