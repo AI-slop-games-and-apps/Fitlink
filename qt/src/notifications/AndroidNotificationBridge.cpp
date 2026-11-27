@@ -92,6 +92,29 @@ void AndroidNotificationBridge::openPermissionSettings() {
 #endif
 }
 
+bool AndroidNotificationBridge::endIncomingCall() {
+#if defined(Q_OS_ANDROID)
+    QJniEnvironment env;
+    QJniObject context = QNativeInterface::QAndroidApplication::context();
+    if (!context.isValid()) {
+        env.checkAndClearExceptions();
+        return false;
+    }
+    const jboolean ended = QJniObject::callStaticMethod<jboolean>(
+        "org/fitlink/watch/FitLinkNotificationService",
+        "endIncomingCall",
+        "(Landroid/content/Context;)Z",
+        context.object<jobject>()
+    );
+    if (env.checkAndClearExceptions()) {
+        return false;
+    }
+    return ended == JNI_TRUE;
+#else
+    return false;
+#endif
+}
+
 void AndroidNotificationBridge::dispatchFromJni(const QString &packageName,
                                                 const QString &appLabel,
                                                 const QString &title,

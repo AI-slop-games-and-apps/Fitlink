@@ -551,6 +551,14 @@ export default function App() {
         lastActivitySyncedAt: stamped,
       }));
     };
+    session.onWatchActionReceived = (actionCode) => {
+      if (actionCode === 0x03) {
+        showToast('Watch button pressed: Reject / Cut Call (0x67 03)');
+      } else {
+        const hex = actionCode.toString(16).padStart(2, '0').toUpperCase();
+        showToast(`Watch control event received (0x67 ${hex})`);
+      }
+    };
   }, [appendLog, showToast]);
 
   const transmitPacket = useCallback(

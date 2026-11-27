@@ -76,6 +76,7 @@ export const FEEA_CMD = {
   PUSH_NOTIFICATION: 0x41, // Verified 0xFEEA V2 notification push: FE EA 20 <len> 41 <icon> <Title:Body>
   FIND_WATCH: 0x61,
   PUSH_NOTIFICATION_LEGACY: 0x64,
+  WATCH_CONTROL: 0x67, // Watch-to-phone control actions (e.g., 0x03 = Reject / Cut Call)
   MEASURE_BLOOD_PRESSURE: 0x69, // 0x69 start / 0x6A stop single Blood Pressure
   STOP_BLOOD_PRESSURE: 0x6a,
   MEASURE_SPO2: 0x6b, // 0x6B start / 0x6C stop SpO2
@@ -87,6 +88,10 @@ export const FEEA_CMD = {
   ADVANCED: 0xb9, // sub-commands follow get = set + 0x10
 } as const;
 
+export const FEEA_WATCH_ACTION = {
+  REJECT_CALL: 0x03, // Verified watch-to-phone payload: FE EA 20 06 67 03
+} as const;
+
 export const FEEA_SUBCMD = {
   WORKOUT_LIST_REQ: 0x00,
   WORKOUT_LIST_RESP: 0x01,
@@ -94,7 +99,7 @@ export const FEEA_SUBCMD = {
 } as const;
 
 export interface ParsedHealthPacket {
-  type: 'none' | 'activity' | 'heartRate' | 'spo2' | 'bloodPressure' | 'battery';
+  type: 'none' | 'activity' | 'heartRate' | 'spo2' | 'bloodPressure' | 'battery' | 'watchAction';
   dayOffset: number;
   steps: number;
   distanceMeters: number;
@@ -103,6 +108,7 @@ export interface ParsedHealthPacket {
   systolicMmHg: number;
   diastolicMmHg: number;
   batteryPercent: number;
+  watchActionCode: number;
 }
 
 export function detectProtocolFromManufacturer(manufacturer: string): ProtocolVersion {
@@ -165,6 +171,16 @@ export function describeIncomingFrame(frame: Uint8Array): string {
   if (cmd === FEEA_CMD.PUSH_NOTIFICATION) return `Notification ACK (${hexCmd})`;
   if (cmd === FEEA_CMD.GET_TIME_FORMAT) return `Time Format (${hexCmd})`;
   if (cmd === FEEA_CMD.GET_ALARMS) return `Alarms (${hexCmd})`;
+  if (cmd === FEEA_CMD.WATCH_CONTROL) {
+    if (frame.length >= 6 && frame[5] === FEEA_WATCH_ACTION.REJECT_CALL) {
+      return `Reject Call (${hexCmd} 03)`;
+    }
+    if (frame.length >= 6) {
+      const sub = frame[5].toString(16).padStart(2, '0').toUpperCase();
+      return `Watch Control (${hexCmd} ${sub})`;
+    }
+    return `Watch Control (${hexCmd})`;
+  }
   if (cmd === FEEA_CMD.MEASURE_BLOOD_PRESSURE || cmd === FEEA_CMD.STOP_BLOOD_PRESSURE)
     return `Blood Pressure (${hexCmd})`;
   if (cmd === FEEA_CMD.MEASURE_SPO2 || cmd === FEEA_CMD.STOP_SPO2) return `SpO2 (${hexCmd})`;
@@ -172,7 +188,6 @@ export function describeIncomingFrame(frame: Uint8Array): string {
     cmd === FEEA_CMD.MEASURE_HEART_RATE ||
     cmd === FEEA_CMD.STOP_HEART_RATE ||
     cmd === 0x6f ||
-    cmd === 0x67 ||
     cmd === 0x68
   )
     return `Heart Rate (${hexCmd})`;
@@ -465,6 +480,7 @@ export function parseFee1Activity(value: Uint8Array): ParsedHealthPacket {
     systolicMmHg: 0,
     diastolicMmHg: 0,
     batteryPercent: -1,
+    watchActionCode: -1,
   };
   if (value.length === 0) return empty;
   if (value.length >= 6 && value[0] === 0xfe && value[1] === 0xea) {
@@ -494,6 +510,7 @@ export function parseFeeaHealthResponse(frame: Uint8Array): ParsedHealthPacket {
     systolicMmHg: 0,
     diastolicMmHg: 0,
     batteryPercent: -1,
+    watchActionCode: -1,
   };
   if (frame.length < 6 || frame[0] !== 0xfe || frame[1] !== 0xea) {
     return empty;
@@ -501,6 +518,14 @@ export function parseFeeaHealthResponse(frame: Uint8Array): ParsedHealthPacket {
 
   const cmd = frame[4];
   const payload = frame.subarray(5);
+
+  if (cmd === FEEA_CMD.WATCH_CONTROL && payload.length >= 1) {
+    return {
+      ...empty,
+      type: 'watchAction',
+      watchActionCode: payload[0],
+    };
+  }
 
   if ((cmd === FEEA_CMD.GET_TODAY_ACTIVITY || cmd === 0x09) && payload.length >= 3) {
     let offset = 0;
@@ -546,7 +571,6 @@ export function parseFeeaHealthResponse(frame: Uint8Array): ParsedHealthPacket {
     (cmd === FEEA_CMD.MEASURE_HEART_RATE ||
       cmd === FEEA_CMD.STOP_HEART_RATE ||
       cmd === 0x6f ||
-      cmd === 0x67 ||
       cmd === 0x68 ||
       cmd === 0x0a) &&
     payload.length >= 1

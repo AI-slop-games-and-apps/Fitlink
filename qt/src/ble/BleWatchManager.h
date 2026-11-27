@@ -111,6 +111,7 @@ signals:
     void heartRateReceived(int bpm);
     void spo2Received(int percent);
     void bloodPressureReceived(int systolic, int diastolic);
+    void watchActionReceived(int actionCode);
     void packetLogged(const QString &direction,
                       const QString &actionLabel,
                       const QString &protocolLabel,

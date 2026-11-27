@@ -188,9 +188,19 @@ QString FeeaCodec::describeIncomingFrame(const QByteArray &frame) {
     if (cmd == CmdGetTimeFormat) return QStringLiteral("Time Format (%1)").arg(hexCmd);
     if (cmd == CmdGetAlarms) return QStringLiteral("Alarms (%1)").arg(hexCmd);
     if (cmd == CmdGetTodayActivity) return QStringLiteral("Steps & Distance (%1)").arg(hexCmd);
+    if (cmd == CmdWatchControl) {
+        if (frame.size() >= 6 && static_cast<uint8_t>(frame.at(5)) == WatchActionRejectCall) {
+            return QStringLiteral("Reject Call (%1 03)").arg(hexCmd);
+        }
+        if (frame.size() >= 6) {
+            const uint8_t sub = static_cast<uint8_t>(frame.at(5));
+            return QStringLiteral("Watch Control (%1 %2)").arg(hexCmd, QStringLiteral("%1").arg(sub, 2, 16, QLatin1Char('0')).toUpper());
+        }
+        return QStringLiteral("Watch Control (%1)").arg(hexCmd);
+    }
     if (cmd == CmdMeasureBloodPress || cmd == CmdStopBloodPress) return QStringLiteral("Blood Pressure (%1)").arg(hexCmd);
     if (cmd == CmdMeasureSpo2 || cmd == CmdStopSpo2) return QStringLiteral("SpO2 (%1)").arg(hexCmd);
-    if (cmd == CmdMeasureHeartRate || cmd == CmdStopHeartRate || cmd == 0x6F || cmd == 0x67) return QStringLiteral("Heart Rate (%1)").arg(hexCmd);
+    if (cmd == CmdMeasureHeartRate || cmd == CmdStopHeartRate || cmd == 0x6F || cmd == 0x68) return QStringLiteral("Heart Rate (%1)").arg(hexCmd);
     if (cmd == CmdWorkout && frame.size() >= 6) {
         const uint8_t sub = static_cast<uint8_t>(frame.at(5));
         return QStringLiteral("Workout (%1 %2)").arg(hexCmd, QStringLiteral("%1").arg(sub, 2, 16, QLatin1Char('0')).toUpper());
@@ -526,7 +536,14 @@ ParsedHealthPacket FeeaCodec::parseFeeaHealthResponse(const QByteArray &frame) {
         }
     }
 
-    if ((cmd == CmdMeasureHeartRate || cmd == CmdStopHeartRate || cmd == 0x6F || cmd == 0x67 || cmd == 0x68 || cmd == 0x0A)
+    if (cmd == CmdWatchControl && !payload.isEmpty()) {
+        out.hasWatchAction = true;
+        out.watchActionCode = static_cast<uint8_t>(payload.at(0));
+        out.valid = true;
+        return out;
+    }
+
+    if ((cmd == CmdMeasureHeartRate || cmd == CmdStopHeartRate || cmd == 0x6F || cmd == 0x68 || cmd == 0x0A)
         && !payload.isEmpty()) {
         for (int i = payload.size() - 1; i >= 0; --i) {
             const int candidate = static_cast<uint8_t>(payload.at(i));

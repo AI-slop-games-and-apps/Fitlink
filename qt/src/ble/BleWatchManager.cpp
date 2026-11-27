@@ -922,6 +922,9 @@ void BleWatchManager::handleParsedHealth(const ParsedHealthPacket &parsed) {
         m_batteryLevel = parsed.batteryPercent;
         emit batteryLevelChanged(m_batteryLevel);
     }
+    if (parsed.hasWatchAction && parsed.watchActionCode >= 0) {
+        emit watchActionReceived(parsed.watchActionCode);
+    }
 }
 
 void BleWatchManager::onCharacteristicRead(const QLowEnergyCharacteristic &characteristic, const QByteArray &value) {

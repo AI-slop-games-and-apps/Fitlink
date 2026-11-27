@@ -100,6 +100,8 @@ struct ParsedHealthPacket {
     int diastolicMmHg = 0;
     bool hasBattery = false;
     int batteryPercent = -1;
+    bool hasWatchAction = false;
+    int watchActionCode = -1;
 };
 
 class FeeaCodec {
@@ -119,6 +121,7 @@ public:
     static constexpr uint8_t CmdPushNotification  = 0x41; // Verified 0xFEEA V2 push notification
     static constexpr uint8_t CmdFindWatch         = 0x61;
     static constexpr uint8_t CmdPushNotifLegacy   = 0x64;
+    static constexpr uint8_t CmdWatchControl      = 0x67; // Watch-to-phone control events (0x03 = Reject Call)
     static constexpr uint8_t CmdMeasureBloodPress = 0x69; // 0x69 start / 0x6A stop Blood Pressure
     static constexpr uint8_t CmdStopBloodPress     = 0x6A;
     static constexpr uint8_t CmdMeasureSpo2        = 0x6B; // 0x6B start / 0x6C stop SpO2
@@ -129,6 +132,7 @@ public:
     static constexpr uint8_t CmdWorkout            = 0xB2; // sub-cmd: 0x00 list req, 0x01 list resp
     static constexpr uint8_t CmdAdvanced           = 0xB9; // sub-commands follow get = set + 0x10
 
+    static constexpr uint8_t WatchActionRejectCall = 0x03; // Verified RX: FE EA 20 06 67 03
     static constexpr uint8_t SubCmdWorkoutListReq  = 0x00;
     static constexpr uint8_t SubCmdWorkoutListResp = 0x01;
     static constexpr uint8_t SubCmdAdvECard        = 0x12;

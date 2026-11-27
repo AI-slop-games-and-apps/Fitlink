@@ -25,6 +25,7 @@ public:
     virtual void setEnabled(bool enabled) = 0;
     virtual void refreshPermissionState() = 0;
     virtual void openPermissionSettings() = 0;
+    virtual bool endIncomingCall() { return false; }
 
 signals:
     void stateChanged();

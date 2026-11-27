@@ -100,6 +100,7 @@ export class WebBleWatchSession {
   onHeartRateReceived?: (bpm: number) => void;
   onSpo2Received?: (spo2: number) => void;
   onBloodPressureReceived?: (systolic: number, diastolic: number) => void;
+  onWatchActionReceived?: (actionCode: number) => void;
 
   get isVirtual(): boolean {
     return this.virtual;
@@ -698,6 +699,8 @@ export class WebBleWatchSession {
       this.onBloodPressureReceived?.(parsed.systolicMmHg, parsed.diastolicMmHg);
     } else if (parsed.type === 'battery' && parsed.batteryPercent >= 0) {
       this.onBatteryChanged?.(parsed.batteryPercent);
+    } else if (parsed.type === 'watchAction' && parsed.watchActionCode >= 0) {
+      this.onWatchActionReceived?.(parsed.watchActionCode);
     }
   }
 

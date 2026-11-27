@@ -19,6 +19,7 @@ public:
     void setEnabled(bool enabled) override;
     void refreshPermissionState() override;
     void openPermissionSettings() override;
+    bool endIncomingCall() override;
 
     // Called from JNI callback on Binder thread; marshals safely onto Qt GUI thread
     static void dispatchFromJni(const QString &packageName,

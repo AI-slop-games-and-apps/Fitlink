@@ -1,5 +1,6 @@
 package org.fitlink.watch;
 
+import android.Manifest;
 import android.app.Notification;
 import android.app.NotificationManager;
 import android.content.ComponentName;
@@ -12,6 +13,7 @@ import android.os.Bundle;
 import android.provider.Settings;
 import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
+import android.telecom.TelecomManager;
 import android.util.Log;
 
 public class FitLinkNotificationService extends NotificationListenerService {
@@ -61,6 +63,27 @@ public class FitLinkNotificationService extends NotificationListenerService {
         } catch (Throwable t) {
             Log.w(TAG, "Unable to open notification listener settings", t);
         }
+    }
+
+    // Safe Java helper invoked when watch sends FE EA 20 06 67 03 (Cut / Reject Call)
+    @SuppressWarnings("deprecation")
+    public static boolean endIncomingCall(Context context) {
+        if (context == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
+            return false;
+        }
+        try {
+            if (context.checkSelfPermission(Manifest.permission.ANSWER_PHONE_CALLS)
+                    != PackageManager.PERMISSION_GRANTED) {
+                return false;
+            }
+            TelecomManager telecom = (TelecomManager) context.getSystemService(Context.TELECOM_SERVICE);
+            if (telecom != null) {
+                return telecom.endCall();
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "Unable to reject incoming call via TelecomManager", t);
+        }
+        return false;
     }
 
     @Override

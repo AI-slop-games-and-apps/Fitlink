@@ -44,6 +44,7 @@ AppController::AppController(QObject *parent)
     connect(m_ble, &BleWatchManager::heartRateReceived, this, &AppController::onHeartRateReceived);
     connect(m_ble, &BleWatchManager::spo2Received, this, &AppController::onSpo2Received);
     connect(m_ble, &BleWatchManager::bloodPressureReceived, this, &AppController::onBloodPressureReceived);
+    connect(m_ble, &BleWatchManager::watchActionReceived, this, &AppController::onWatchActionReceived);
     connect(m_ble, &BleWatchManager::packetLogged, this, &AppController::onPacketLogged);
     connect(m_ble, &BleWatchManager::errorOccurred, this, [this](const QString &msg) {
         emit toastMessage(msg, true);
@@ -874,6 +875,20 @@ void AppController::onBloodPressureReceived(int systolic, int diastolic) {
     m_lastActivitySyncedAt = m_bloodPressureUpdatedAt;
     emit activityChanged();
     savePersistedState();
+}
+
+void AppController::onWatchActionReceived(int actionCode) {
+    if (actionCode == FeeaCodec::WatchActionRejectCall) {
+        const bool ended = m_osBridge && m_osBridge->endIncomingCall();
+        emit toastMessage(
+            ended ? tr("Call rejected from watch")
+                  : tr("Watch button pressed: Reject / Cut Call (0x67 03)"),
+            false
+        );
+        return;
+    }
+    const QString hex = QStringLiteral("%1").arg(actionCode & 0xFF, 2, 16, QLatin1Char('0')).toUpper();
+    emit toastMessage(tr("Watch control event received (0x67 %1)").arg(hex), false);
 }
 
 void AppController::ensureCurrentWeekBuckets() {

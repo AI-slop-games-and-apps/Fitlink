@@ -232,6 +232,7 @@ private slots:
     void onHeartRateReceived(int bpm);
     void onSpo2Received(int percent);
     void onBloodPressureReceived(int systolic, int diastolic);
+    void onWatchActionReceived(int actionCode);
     void onPacketLogged(const QString &direction,
                         const QString &actionLabel,
                         const QString &protocolLabel,
