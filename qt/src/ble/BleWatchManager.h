@@ -176,7 +176,7 @@ private:
     int m_mtuSize = 20;
     int m_writeDelayMs = 50;
     NotificationFormat m_notificationFormat = NotificationFormat::Standard;
-    bool m_preferWriteNoResponse = false;
+    bool m_preferWriteNoResponse = true;
 
     QBluetoothDeviceDiscoveryAgent *m_discoveryAgent = nullptr;
     QList<QBluetoothDeviceInfo> m_discoveredDevices;

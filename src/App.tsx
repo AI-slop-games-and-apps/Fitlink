@@ -114,7 +114,7 @@ function loadPersisted(): PersistedConfig {
         mtuSize: parsed.mtuSize ?? 20,
         writeDelayMs: parsed.writeDelayMs ?? 50,
         notificationFormat: validFormat,
-        preferWriteNoResponse: parsed.preferWriteNoResponse ?? false,
+        preferWriteNoResponse: parsed.preferWriteNoResponse ?? true,
         osMirroringEnabled: parsed.osMirroringEnabled ?? true,
         appFilters: parsed.appFilters?.length ? parsed.appFilters : DEFAULT_APP_FILTERS,
         templates: parsed.templates ?? DEFAULT_TEMPLATES,
@@ -170,7 +170,7 @@ function loadPersisted(): PersistedConfig {
     mtuSize: 20,
     writeDelayMs: 50,
     notificationFormat: 'standard',
-    preferWriteNoResponse: false,
+    preferWriteNoResponse: true,
     osMirroringEnabled: true,
     appFilters: DEFAULT_APP_FILTERS,
     templates: DEFAULT_TEMPLATES,
@@ -979,7 +979,7 @@ export default function App() {
       iconId: number,
       title: string,
       body: string,
-      sourceLabel = 'Push Notification (0x64)',
+      sourceLabel = 'Push Notification (0x41)',
       formatOverride?: NotificationFormat
     ) => {
       if (!watch.isConnected) {
@@ -1055,7 +1055,7 @@ export default function App() {
             iconId,
             `${title} #${i + 1}`,
             body,
-            `Formula #${i + 1} (0x64)`,
+            `Formula #${i + 1} (0x41)`,
             opt.id
           );
           if (i < NOTIFICATION_FORMAT_OPTIONS.length - 1 && !cancelFormatTestRef.current) {

@@ -546,8 +546,18 @@ export class WebBleWatchSession {
       }
     };
 
-    // Always chunk by mtuSize (default 20B) in Web Bluetooth so writes never trigger unsupported
-    // ATT Long Write (Prepare Write) or silent truncation on watches with a 23-byte ATT MTU.
+    // When the browser/OS negotiated a larger ATT MTU (e.g., 247B on Android/Linux/macOS),
+    // try sending frames <= 244B in a single write first (matching native BLE writes) and fall
+    // back cleanly to mtuSize chunking if the host rejects oversized writes.
+    if (chunks.length > 1 && packet.length <= 244) {
+      try {
+        await writeSingleChunk(packet);
+        return { chunks: 1 };
+      } catch {
+        // Fall back to chunked writes below
+      }
+    }
+
     const interChunkDelay = Math.min(writeDelayMs, 20);
     for (let i = 0; i < chunks.length; i += 1) {
       await writeSingleChunk(chunks[i]);

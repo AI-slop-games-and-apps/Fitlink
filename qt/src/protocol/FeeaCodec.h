@@ -23,45 +23,15 @@ enum class ProtocolPreference {
 };
 
 enum class NotificationFormat {
-    Standard = 0,           // [icon] [UTF-8]
-    V2Version01 = 1,        // [icon] [0x01] [UTF-8]
-    V2Version02 = 2,        // [icon] [0x02] [UTF-8]
-    V2Header = 3,           // [icon] [0x00] [UTF-8]
-    SplitLen = 4,           // [icon] [tLen] [title] [bLen] [body]
-    SplitTitle = 5,         // [icon] [title] [0x00] [body] [0x00]
-    NulTerminated = 6,      // [icon] [UTF-8] [0x00]
-    LengthPrefixed = 7,     // [icon] [len] [UTF-8]
-    Utf16Le = 8,            // [icon] [UTF-16LE]
-    Utf16Be = 9,            // [icon] [UTF-16BE]
-    NewlineSplit = 10,      // [icon] [title] [0x0A] [body]
-    SplitTitleNoTrail = 11, // [icon] [title] [0x00] [body]
-    HighBitIcon = 12,       // [icon|0x80] [UTF-8]
-    HighBitV2Header00 = 13, // [icon|0x80] [0x00] [UTF-8]
-    HighBitV2Version01 = 14,// [icon|0x80] [0x01] [UTF-8]
-    V2Flag01SplitNul = 15,  // [icon] [0x01] [title] [0x00] [body] [0x00]
-    V2Flag02SplitNul = 16,  // [icon] [0x02] [title] [0x00] [body] [0x00]
-    V2Flag00SplitNul = 17,  // [icon] [0x00] [title] [0x00] [body] [0x00]
-    V2Flag01SplitLen = 18,  // [icon] [0x01] [tLen] [title] [bLen] [body]
-    V2Flag00LenUtf8 = 19,   // [icon] [0x00] [len] [UTF-8]
-    V2Flag01LenUtf8 = 20,   // [icon] [0x01] [len] [UTF-8]
-    Action01Icon = 21,      // [0x01] [icon] [UTF-8]
-    Action00Icon = 22,      // [0x00] [icon] [UTF-8]
-    Action01IconLen = 23,   // [0x01] [icon] [len] [UTF-8]
-    Paged0101 = 24,         // [icon] [0x01] [0x01] [UTF-8]
-    Header0001 = 25,        // [icon] [0x00] [0x01] [UTF-8]
-    Header0100 = 26,        // [icon] [0x01] [0x00] [UTF-8]
-    Header0000 = 27,        // [icon] [0x00] [0x00] [UTF-8]
-    V1FrameStandard = 28,   // FE EA 10 LL 64 [icon] [UTF-8]
-    V1FrameSplitNul = 29,   // FE EA 10 LL 64 [icon] [title] [0x00] [body] [0x00]
-    PayloadLenOnly = 30,    // FE EA 20 <payLen> 64 [icon] [UTF-8]
-    RawNoHeader = 31,       // 64 [icon] [UTF-8]
-    Icon16BeV2Flag01 = 32,  // [0x00] [icon] [0x01] [UTF-8]
-    IconLen16BeUtf8 = 33,   // [icon] [lenHi] [lenLo] [UTF-8]
-    Utf16LeNul = 34,        // [icon] [UTF-16LE] [0x00] [0x00]
-    V2Flag01Utf16Le = 35    // [icon] [0x01] [UTF-16LE]
+    Standard = 0,           // FE EA 20 LL 41 [icon] Title:Body
+    Generic80 = 1,          // FE EA 20 LL 41 80 Title:Body
+    HighBitIcon = 2,        // FE EA 20 LL 41 [icon|0x80] Title:Body
+    V1FrameStandard = 3,    // FE EA 10 LL 41 [icon] Title:Body
+    Legacy64Standard = 4,   // FE EA 20 LL 64 [icon] Title:Body
+    Legacy64Generic80 = 5   // FE EA 20 LL 64 80 Title:Body
 };
 
-inline constexpr int NotificationFormatCount = 36;
+inline constexpr int NotificationFormatCount = 6;
 
 // Standard 0xFEEA BLE notification source icon IDs
 enum class WatchAppIcon : uint8_t {
@@ -81,7 +51,7 @@ enum class WatchAppIcon : uint8_t {
     Slack        = 0x0D,
     Calendar     = 0x0E,
     GenericOther = 0x0F,
-    OtherAll     = 0xFF
+    OtherAll     = 0x80
 };
 
 namespace GattUuids {
@@ -146,10 +116,10 @@ public:
     static constexpr uint8_t CmdSetTimeFormat     = 0x27;
     static constexpr uint8_t CmdGetTimeFormat     = 0x37;
     static constexpr uint8_t CmdSetTime           = 0x31;
-    static constexpr uint8_t CmdGetTime           = 0x41;
-    static constexpr uint8_t CmdFindWatch          = 0x61;
-    static constexpr uint8_t CmdPushNotification   = 0x64;
-    static constexpr uint8_t CmdMeasureBloodPress  = 0x69; // 0x69 start / 0x6A stop Blood Pressure
+    static constexpr uint8_t CmdPushNotification  = 0x41; // Verified 0xFEEA V2 push notification
+    static constexpr uint8_t CmdFindWatch         = 0x61;
+    static constexpr uint8_t CmdPushNotifLegacy   = 0x64;
+    static constexpr uint8_t CmdMeasureBloodPress = 0x69; // 0x69 start / 0x6A stop Blood Pressure
     static constexpr uint8_t CmdStopBloodPress     = 0x6A;
     static constexpr uint8_t CmdMeasureSpo2        = 0x6B; // 0x6B start / 0x6C stop SpO2
     static constexpr uint8_t CmdStopSpo2           = 0x6C;

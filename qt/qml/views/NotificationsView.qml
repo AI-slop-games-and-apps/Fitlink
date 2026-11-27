@@ -9,6 +9,7 @@ ColumnLayout {
     spacing: 0
 
     readonly property var appIcons: [
+        { id: 128, label: "Generic / All Apps (0x80)" },
         { id: 0,   label: "Incoming Call (0x00)" },
         { id: 1,   label: "SMS (0x01)" },
         { id: 6,   label: "WhatsApp (0x06)" },
@@ -17,8 +18,7 @@ ColumnLayout {
         { id: 14,  label: "Calendar (0x0E)" },
         { id: 13,  label: "Slack (0x0D)" },
         { id: 8,   label: "Instagram (0x08)" },
-        { id: 15,  label: "Generic App (0x0F)" },
-        { id: 255, label: "All / Other (0xFF)" }
+        { id: 15,  label: "Other Icon (0x0F)" }
     ]
 
     TabBar {
@@ -114,7 +114,7 @@ ColumnLayout {
                             Layout.fillWidth: true
                             textRole: "label"
                             model: root.appIcons
-                            currentIndex: 1 // SMS (0x01) default
+                            currentIndex: 0 // Generic / All Apps (0x80) default
                         }
 
                         TextField {
@@ -154,7 +154,7 @@ ColumnLayout {
                                     color: "#0F172A"
                                 }
                                 Label {
-                                    text: qsTr("Toggle if watch ignores acknowledged notification writes")
+                                    text: qsTr("Recommended for 0xFEE2 (0x41 notifications use Write Without Response)")
                                     font.pixelSize: 11
                                     color: "#64748B"
                                     wrapMode: Text.WordWrap
@@ -237,7 +237,7 @@ ColumnLayout {
                                 enabled: appController.isConnected
                                 implicitHeight: 44
                                 implicitWidth: Math.max(128, quickTestRow.implicitWidth + 26)
-                                onClicked: appController.sendManualNotification(1, "FitLink", "Hi")
+                                onClicked: appController.sendManualNotification(128, "FitLink", "Hi")
                                 background: Rectangle {
                                     radius: 10
                                     color: quickTestBtn.pressed ? "#DBEAFE" : "#EFF6FF"
@@ -331,7 +331,7 @@ ColumnLayout {
                                             anchors.verticalCenter: parent.verticalCenter
                                             text: appController.isTestingFormats
                                                   ? qsTr("Stop Formula Test")
-                                                  : qsTr("Test All Formulas (1–36)")
+                                                  : qsTr("Test All Formulas (1–%1)").arg(appController.notificationFormatLabels.length)
                                             font.pixelSize: 13
                                             font.weight: Font.DemiBold
                                             color: appController.isTestingFormats ? "#DC2626" : "#0F172A"

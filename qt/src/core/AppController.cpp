@@ -325,7 +325,7 @@ bool AppController::hasAlertNotificationService() const {
 }
 
 static WatchAppIcon toWatchIcon(int iconId) {
-    if (iconId == 0xFF) {
+    if (iconId == 0x80 || iconId == 0xFF) {
         return WatchAppIcon::OtherAll;
     }
     return static_cast<WatchAppIcon>(std::clamp(iconId, 0, 15));
@@ -380,7 +380,7 @@ void AppController::stopFormatTest() {
 
 int AppController::utf8ByteLength(const QString &title, const QString &body) const {
     QString formatted = (!title.trimmed().isEmpty() && !body.trimmed().isEmpty())
-        ? title.trimmed() + QStringLiteral(": ") + body.trimmed()
+        ? title.trimmed() + QStringLiteral(":") + body.trimmed()
         : (title.trimmed().isEmpty() ? body.trimmed() : title.trimmed());
     return formatted.toUtf8().size();
 }
@@ -1031,10 +1031,11 @@ void AppController::loadPersistedState() {
     m_ble->setProtocolPreference(static_cast<ProtocolPreference>(settings.value(QStringLiteral("protocol/pref"), 0).toInt()));
     m_ble->setMtuSize(settings.value(QStringLiteral("protocol/mtu"), 20).toInt());
     m_ble->setWriteDelayMs(settings.value(QStringLiteral("protocol/delayMs"), 50).toInt());
+    const int savedFormat = settings.value(QStringLiteral("notifications/payloadFormat"), 0).toInt();
     m_ble->setNotificationFormat(static_cast<NotificationFormat>(
-        std::clamp(settings.value(QStringLiteral("notifications/payloadFormat"), 0).toInt(), 0, NotificationFormatCount - 1)
+        (savedFormat >= 0 && savedFormat < NotificationFormatCount) ? savedFormat : 0
     ));
-    m_ble->setPreferWriteNoResponse(settings.value(QStringLiteral("notifications/preferWriteNoResponse"), false).toBool());
+    m_ble->setPreferWriteNoResponse(settings.value(QStringLiteral("notifications/preferWriteNoResponse"), true).toBool());
     m_osBridge->setEnabled(settings.value(QStringLiteral("notifications/osMirroringEnabled"), true).toBool());
 
     QFile file(stateFilePath());

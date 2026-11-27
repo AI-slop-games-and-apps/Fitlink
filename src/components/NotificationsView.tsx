@@ -112,8 +112,8 @@ export function NotificationsView({
 }: NotificationsViewProps) {
   const [subTab, setSubTab] = useState<SubTab>('composer');
 
-  // Manual Composer state — default to SMS (0x01), which is enabled by default on most 0xFEEA watches
-  const [iconId, setIconId] = useState<number>(0x01);
+  // Manual Composer state — default to Generic/All Apps (0x80), verified in BLE capture
+  const [iconId, setIconId] = useState<number>(0x80);
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
 
@@ -369,14 +369,14 @@ export function NotificationsView({
                     rows={3}
                     value={body}
                     onChange={(e) => setBody(e.target.value)}
-                    placeholder="Type notification text to push via 0x64..."
+                    placeholder="Type notification text to push via 0x41..."
                     className="mt-1.5 w-full rounded-xl border border-[#CBD5E1] bg-white p-3 text-sm text-[#0F172A] focus:border-[#2563EB] focus:outline-none"
                   />
                 </div>
 
                 <div>
                   <label htmlFor="notif-format" className="block text-xs font-medium text-[#475569]">
-                    0x64 Payload Format
+                    0x41 Payload Format
                   </label>
                   <select
                     id="notif-format"
@@ -398,13 +398,13 @@ export function NotificationsView({
                       Write Without Response (0xFEE2)
                     </div>
                     <div className="text-[11px] text-[#64748B]">
-                      Enable if watch ignores acknowledged 0x64 notification writes
+                      Recommended for 0xFEE2 (0x41 notifications use Write Without Response)
                     </div>
                   </div>
                   <MaterialSwitch
                     checked={preferWriteNoResponse}
                     onChange={onTogglePreferWriteNoResponse}
-                    label="Prefer Write Without Response for 0x64 notifications"
+                    label="Prefer Write Without Response for 0x41 notifications"
                   />
                 </div>
 
@@ -435,7 +435,7 @@ export function NotificationsView({
                   <button
                     type="button"
                     disabled={!isConnected || isTestingFormats}
-                    onClick={() => onSendManualNotification(0x01, 'FitLink', 'Hi')}
+                    onClick={() => onSendManualNotification(0x80, 'FitLink', 'Hi')}
                     className="inline-flex h-10 items-center gap-2 rounded-xl border border-[#2563EB]/30 bg-[#EFF6FF] px-4 text-sm font-medium text-[#2563EB] transition-colors hover:bg-[#DBEAFE] disabled:cursor-not-allowed disabled:opacity-50 whitespace-nowrap"
                   >
                     <Bell className="h-4 w-4" />

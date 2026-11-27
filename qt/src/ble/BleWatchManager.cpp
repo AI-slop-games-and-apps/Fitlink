@@ -1112,8 +1112,8 @@ bool BleWatchManager::sendNotification(WatchAppIcon icon,
         version, icon, title, body, maxTextBytes, activeFormat
     );
     const QString label = (formatOverride >= 0 && formatOverride < NotificationFormatCount)
-        ? tr("Formula #%1 (0x64)").arg(formatOverride + 1)
-        : tr("Push Notification (0x64)");
+        ? tr("Formula #%1 (0x41)").arg(formatOverride + 1)
+        : tr("Push Notification (0x41)");
     const bool sent = enqueuePacket(packet, label);
 
     // Also push via standard BLE Alert Notification Service (0x1811 / 0x2A46) if the watch exposes it
