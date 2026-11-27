@@ -63,7 +63,7 @@ AppController::AppController(QObject *parent)
     m_schedulerTimer.start();
 
     m_hrMeasureTimer.setSingleShot(true);
-    m_hrMeasureTimer.setInterval(75000);
+    m_hrMeasureTimer.setInterval(kHrStartupTimeoutMs);
     connect(&m_hrMeasureTimer, &QTimer::timeout, this, [this]() {
         bool changed = false;
         if (m_isMeasuringHeartRate) {
@@ -83,15 +83,30 @@ AppController::AppController(QObject *parent)
         }
     });
 
+    // Stream-end idle detector: fires once no new HR packets arrive for kHrStreamEndIdleMs
     m_hrLoopDelayTimer.setSingleShot(true);
-    m_hrLoopDelayTimer.setInterval(1000);
+    m_hrLoopDelayTimer.setInterval(kHrStreamEndIdleMs);
     connect(&m_hrLoopDelayTimer, &QTimer::timeout, this, [this]() {
         if (!m_isContinuousHeartRate || !isConnected()) {
             resetContinuousHeartRate(false);
             return;
         }
-        if (!startSingleHeartRateReading(true)) {
-            resetContinuousHeartRate(false);
+        if (m_hrContinuousStep < kContinuousHrReadings) {
+            m_hrContinuousStep += 1;
+            emit activityChanged();
+            if (!startSingleHeartRateReading(true)) {
+                resetContinuousHeartRate(false);
+            }
+        } else {
+            m_isMeasuringHeartRate = false;
+            m_isContinuousHeartRate = false;
+            m_hrContinuousStep = 0;
+            m_hrTapTimestamps.clear();
+            emit activityChanged();
+            emit toastMessage(
+                tr("Continuous heart rate monitoring complete (%1/%1)").arg(kContinuousHrReadings),
+                false
+            );
         }
     });
 
@@ -648,8 +663,9 @@ bool AppController::startSingleHeartRateReading(bool silentToast) {
         return false;
     }
     if (m_ble->requestHeartRateReading()) {
+        m_hrLoopDelayTimer.stop();
         m_isMeasuringHeartRate = true;
-        m_hrMeasureTimer.start();
+        m_hrMeasureTimer.start(kHrStartupTimeoutMs);
         emit activityChanged();
         if (!silentToast) {
             emit toastMessage(tr("Heart rate reading started on watch"), false);
@@ -660,14 +676,17 @@ bool AppController::startSingleHeartRateReading(bool silentToast) {
 }
 
 void AppController::resetContinuousHeartRate(bool notifyUser) {
+    m_hrMeasureTimer.stop();
     m_hrLoopDelayTimer.stop();
     m_hrTapTimestamps.clear();
     const bool wasActive = m_isContinuousHeartRate;
+    const bool wasMeasuring = m_isMeasuringHeartRate;
+    m_isMeasuringHeartRate = false;
     m_isContinuousHeartRate = false;
     m_hrContinuousStep = 0;
-    if (wasActive) {
+    if (wasActive || wasMeasuring) {
         emit activityChanged();
-        if (notifyUser) {
+        if (wasActive && notifyUser) {
             emit toastMessage(tr("Continuous heart rate monitoring stopped"), false);
         }
     }
@@ -808,9 +827,8 @@ void AppController::onHeartRateReceived(int bpm) {
     if (bpm < 30 || bpm > 220) {
         return;
     }
-    const bool wasMeasuring = m_isMeasuringHeartRate;
+    // Stream has started arriving — cancel the initial startup-wait timeout
     m_hrMeasureTimer.stop();
-    m_isMeasuringHeartRate = false;
     m_latestHeartRate = bpm;
     m_heartRateUpdatedAt = QDateTime::currentDateTime();
     m_heartRateSamples.append(bpm);
@@ -819,19 +837,12 @@ void AppController::onHeartRateReceived(int bpm) {
     }
     m_lastActivitySyncedAt = m_heartRateUpdatedAt;
 
-    if (m_isContinuousHeartRate && wasMeasuring && !m_hrLoopDelayTimer.isActive()) {
-        if (m_hrContinuousStep < kContinuousHrReadings && isConnected()) {
-            m_hrContinuousStep += 1;
-            m_hrLoopDelayTimer.start();
-        } else {
-            m_hrLoopDelayTimer.stop();
-            m_isContinuousHeartRate = false;
-            m_hrContinuousStep = 0;
-            emit toastMessage(
-                tr("Continuous heart rate monitoring complete (%1/%1)").arg(kContinuousHrReadings),
-                false
-            );
-        }
+    if (m_isContinuousHeartRate && m_isMeasuringHeartRate) {
+        // Stay on the current step while the watch is streaming samples;
+        // restart the idle timer on each packet so the next cycle only starts after the stream ends.
+        m_hrLoopDelayTimer.start(kHrStreamEndIdleMs);
+    } else {
+        m_isMeasuringHeartRate = false;
     }
 
     emit activityChanged();

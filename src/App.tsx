@@ -336,6 +336,8 @@ export default function App() {
   const spo2TimerRef = useRef<number | null>(null);
   const bpTimerRef = useRef<number | null>(null);
   const CONTINUOUS_HR_TOTAL = 4;
+  const HR_STARTUP_TIMEOUT_MS = 75_000;
+  const HR_STREAM_END_IDLE_MS = 6_000;
 
   const [isVibrating, setIsVibrating] = useState(false);
   const [activeWatchBanner, setActiveWatchBanner] = useState<WatchAlertBanner | null>(null);
@@ -486,13 +488,11 @@ export default function App() {
       });
     };
     session.onHeartRateReceived = (bpm) => {
-      const wasMeasuring = hrMeasuringRef.current;
+      // Stream has started arriving — cancel the initial startup-wait timeout
       if (hrTimerRef.current !== null) {
         window.clearTimeout(hrTimerRef.current);
         hrTimerRef.current = null;
       }
-      hrMeasuringRef.current = false;
-      setIsMeasuringHeartRate(false);
       const stamped = formatShortTime();
       setActivityState((prev) => ({
         ...prev,
@@ -502,22 +502,34 @@ export default function App() {
         lastActivitySyncedAt: stamped,
       }));
 
-      if (hrContinuousRef.current.active && wasMeasuring && hrLoopTimerRef.current === null) {
-        if (hrContinuousRef.current.step < CONTINUOUS_HR_TOTAL) {
-          const nextStep = hrContinuousRef.current.step + 1;
-          hrContinuousRef.current = { active: true, step: nextStep };
-          setContinuousHeartRateStep(nextStep);
-          hrLoopTimerRef.current = window.setTimeout(() => {
-            hrLoopTimerRef.current = null;
-            if (!hrContinuousRef.current.active) return;
-            void triggerHeartRateReadingRef.current(true);
-          }, 1000);
-        } else {
-          hrContinuousRef.current = { active: false, step: 0 };
-          setIsContinuousHeartRate(false);
-          setContinuousHeartRateStep(0);
-          showToast(`Continuous heart rate monitoring complete (${CONTINUOUS_HR_TOTAL}/${CONTINUOUS_HR_TOTAL})`);
+      if (hrContinuousRef.current.active && hrMeasuringRef.current) {
+        // Keep the current reading active while HR packets are streaming and
+        // only advance/finish once the stream goes silent for HR_STREAM_END_IDLE_MS.
+        if (hrLoopTimerRef.current !== null) {
+          window.clearTimeout(hrLoopTimerRef.current);
         }
+        hrLoopTimerRef.current = window.setTimeout(() => {
+          hrLoopTimerRef.current = null;
+          if (!hrContinuousRef.current.active) return;
+          if (hrContinuousRef.current.step < CONTINUOUS_HR_TOTAL) {
+            const nextStep = hrContinuousRef.current.step + 1;
+            hrContinuousRef.current = { active: true, step: nextStep };
+            setContinuousHeartRateStep(nextStep);
+            void triggerHeartRateReadingRef.current(true);
+          } else {
+            hrMeasuringRef.current = false;
+            setIsMeasuringHeartRate(false);
+            hrContinuousRef.current = { active: false, step: 0 };
+            setIsContinuousHeartRate(false);
+            setContinuousHeartRateStep(0);
+            showToast(
+              `Continuous heart rate monitoring complete (${CONTINUOUS_HR_TOTAL}/${CONTINUOUS_HR_TOTAL})`
+            );
+          }
+        }, HR_STREAM_END_IDLE_MS);
+      } else {
+        hrMeasuringRef.current = false;
+        setIsMeasuringHeartRate(false);
       }
     };
     session.onSpo2Received = (spo2) => {
@@ -683,12 +695,18 @@ export default function App() {
 
   const stopContinuousHeartRate = useCallback(
     (notify = true) => {
+      if (hrTimerRef.current !== null) {
+        window.clearTimeout(hrTimerRef.current);
+        hrTimerRef.current = null;
+      }
       if (hrLoopTimerRef.current !== null) {
         window.clearTimeout(hrLoopTimerRef.current);
         hrLoopTimerRef.current = null;
       }
       hrTapTimestampsRef.current = [];
       const wasActive = hrContinuousRef.current.active;
+      hrMeasuringRef.current = false;
+      setIsMeasuringHeartRate(false);
       hrContinuousRef.current = { active: false, step: 0 };
       setIsContinuousHeartRate(false);
       setContinuousHeartRateStep(0);
@@ -711,6 +729,10 @@ export default function App() {
       if (hrTimerRef.current !== null) {
         window.clearTimeout(hrTimerRef.current);
       }
+      if (hrLoopTimerRef.current !== null) {
+        window.clearTimeout(hrLoopTimerRef.current);
+        hrLoopTimerRef.current = null;
+      }
       hrTimerRef.current = window.setTimeout(() => {
         hrMeasuringRef.current = false;
         setIsMeasuringHeartRate(false);
@@ -719,7 +741,7 @@ export default function App() {
           stopContinuousHeartRate(false);
           showToast('Heart rate reading timed out — continuous monitoring stopped', true);
         }
-      }, 75_000);
+      }, HR_STARTUP_TIMEOUT_MS);
       const ok = await transmitPacket(
         'Measure Heart Rate (0x6D)',
         encodeMeasureHeartRate(resolved),

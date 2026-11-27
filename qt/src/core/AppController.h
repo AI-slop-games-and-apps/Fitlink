@@ -256,6 +256,8 @@ private:
     qint64 computeNextRunMs(const QString &mode, const QString &targetHHMM, int intervalMinutes) const;
 
     static constexpr int kContinuousHrReadings = 4;
+    static constexpr int kHrStartupTimeoutMs = 75000;
+    static constexpr int kHrStreamEndIdleMs = 6000;
 
     BleWatchManager *m_ble = nullptr;
     PlatformNotificationBridge *m_osBridge = nullptr;
