@@ -1,6 +1,13 @@
 import { BatteryCharging, BellRing, Clock, RefreshCw, Vibrate, Watch } from 'lucide-react';
 import { formatProtocolLabel, getPresetLabel, resolveProtocolVersion } from '../protocol/feeaCodec';
-import type { PacketLogEntry, ScheduledAlert, WatchAlertBanner, WatchRuntimeState } from '../types/fitlink';
+import type { DistanceUnit, PacketLogEntry, ScheduledAlert, WatchAlertBanner, WatchRuntimeState } from '../types/fitlink';
+
+const METERS_PER_MILE = 1609.344;
+
+function formatOverviewDistance(meters: number, unit: DistanceUnit): string {
+  const val = unit === 'mi' ? meters / METERS_PER_MILE : meters / 1000;
+  return val.toFixed(2);
+}
 
 interface OverviewViewProps {
   watch: WatchRuntimeState;
@@ -11,13 +18,19 @@ interface OverviewViewProps {
   osPlatformMode: 'linux' | 'android';
   scheduledAlerts: ScheduledAlert[];
   packetLog: PacketLogEntry[];
+  todaySteps: number | null;
+  todayDistanceMeters: number | null;
+  distanceUnit: DistanceUnit;
+  dailyDistanceGoalMeters: number;
+  isSyncingActivity: boolean;
   isVibrating: boolean;
   activeWatchBanner: WatchAlertBanner | null;
   onOpenConnect: () => void;
   onSyncTimeNow: () => void;
   onFindWatch: () => void;
   onRefreshBattery: () => void;
-  onNavigate: (tab: 'time' | 'notifications' | 'device') => void;
+  onRefreshActivity: () => void;
+  onNavigate: (tab: 'activity' | 'time' | 'notifications' | 'device') => void;
 }
 
 export function OverviewView({
@@ -29,18 +42,29 @@ export function OverviewView({
   osPlatformMode,
   scheduledAlerts,
   packetLog,
+  todaySteps,
+  todayDistanceMeters,
+  distanceUnit,
+  dailyDistanceGoalMeters,
+  isSyncingActivity,
   isVibrating,
   activeWatchBanner,
   onOpenConnect,
   onSyncTimeNow,
   onFindWatch,
   onRefreshBattery,
+  onRefreshActivity,
   onNavigate,
 }: OverviewViewProps) {
   const activeProto = formatProtocolLabel(
     resolveProtocolVersion(watch.detectedProtocol, watch.protocolPreference)
   );
   const enabledSchedulesCount = scheduledAlerts.filter((a) => a.enabled).length;
+  const formattedDistance =
+    todayDistanceMeters !== null
+      ? `${formatOverviewDistance(todayDistanceMeters, distanceUnit)} ${distanceUnit}`
+      : `-- ${distanceUnit}`;
+  const formattedGoal = `${formatOverviewDistance(dailyDistanceGoalMeters, distanceUnit)} ${distanceUnit}`;
 
   return (
     <div className="mx-auto max-w-5xl space-y-6 p-4 sm:p-6 lg:p-8">
@@ -87,43 +111,48 @@ export function OverviewView({
                   {watch.batteryLevel !== null ? `${watch.batteryLevel}%` : '--%'}
                 </span>
               </div>
-              <div className="mt-0.5 text-xs text-[#64748B]">Battery Level</div>
+              <div className="mt-0.5 flex items-center gap-1.5 sm:justify-end">
+                <span className="text-xs text-[#64748B]">Battery Level</span>
+                {watch.isConnected && (
+                  <button
+                    type="button"
+                    onClick={onRefreshBattery}
+                    title="Refresh battery (GATT 0x2A19)"
+                    aria-label="Refresh battery"
+                    className="inline-flex h-5 w-5 items-center justify-center rounded text-[#64748B] transition-colors hover:bg-[#F1F5F9] hover:text-[#0F172A] focus-visible:outline-2 focus-visible:outline-[#2563EB]"
+                  >
+                    <RefreshCw className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>
 
-        <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-[#E2E8F0] pt-5">
+        <div className="mt-6 border-t border-[#E2E8F0] pt-5">
           {watch.isConnected ? (
-            <>
+            <div className="grid grid-cols-2 gap-3 sm:flex sm:flex-nowrap sm:items-center">
               <button
                 type="button"
                 onClick={onSyncTimeNow}
-                className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#2563EB] px-4 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563EB] whitespace-nowrap shrink-0"
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-[#2563EB] px-3 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563EB] whitespace-nowrap sm:px-4"
               >
-                <Clock className="h-4 w-4" />
-                <span>Sync Time Now</span>
+                <Clock className="h-4 w-4 shrink-0" />
+                <span>Sync Time</span>
               </button>
               <button
                 type="button"
                 onClick={onFindWatch}
-                className={`inline-flex h-10 items-center gap-2 rounded-xl border px-4 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563EB] whitespace-nowrap shrink-0 ${
+                className={`inline-flex h-10 items-center justify-center gap-2 rounded-xl border px-3 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563EB] whitespace-nowrap sm:px-4 ${
                   isVibrating
                     ? 'border-[#2563EB] bg-[#EFF6FF] text-[#2563EB]'
                     : 'border-[#CBD5E1] bg-white text-[#0F172A] hover:bg-[#F8FAFC]'
                 }`}
               >
-                <Vibrate className="h-4 w-4" />
-                <span>{isVibrating ? 'Buzzing Watch...' : 'Find Watch'}</span>
+                <Vibrate className="h-4 w-4 shrink-0" />
+                <span>{isVibrating ? 'Buzzing...' : 'Find Watch'}</span>
               </button>
-              <button
-                type="button"
-                onClick={onRefreshBattery}
-                className="inline-flex h-10 items-center gap-2 rounded-xl px-3.5 text-sm font-medium text-[#475569] transition-colors hover:bg-[#F1F5F9] hover:text-[#0F172A] focus-visible:outline-2 focus-visible:outline-[#2563EB] whitespace-nowrap shrink-0"
-              >
-                <RefreshCw className="h-4 w-4" />
-                <span>Refresh Battery</span>
-              </button>
-            </>
+            </div>
           ) : (
             <button
               type="button"
@@ -161,6 +190,45 @@ export function OverviewView({
             </span>
           </div>
         )}
+      </section>
+
+      {/* Today's Activity Box (same size as boxes below, directly above Time Sync) */}
+      <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <div className="flex flex-col rounded-2xl border border-[#E2E8F0] bg-white p-5 text-left transition-colors hover:border-[#CBD5E1]">
+          <div className="flex items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={() => onNavigate('activity')}
+              className="text-xs font-medium text-[#64748B] hover:text-[#2563EB] focus-visible:outline-2 focus-visible:outline-[#2563EB]"
+            >
+              Today&apos;s Activity
+            </button>
+            <button
+              type="button"
+              disabled={!watch.isConnected || isSyncingActivity}
+              onClick={onRefreshActivity}
+              title="Refresh activity"
+              aria-label="Refresh activity"
+              className="inline-flex h-5 w-5 items-center justify-center rounded text-[#64748B] transition-colors hover:bg-[#F1F5F9] hover:text-[#0F172A] focus-visible:outline-2 focus-visible:outline-[#2563EB] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${isSyncingActivity ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={() => onNavigate('activity')}
+            className="mt-2 flex flex-col text-left focus-visible:outline-2 focus-visible:outline-[#2563EB]"
+          >
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 font-mono text-base font-semibold text-[#0F172A] tabular-nums">
+              <span>{todaySteps !== null ? `${todaySteps.toLocaleString()} steps` : '-- steps'}</span>
+              <span className="text-[#CBD5E1]" aria-hidden="true">·</span>
+              <span>{formattedDistance}</span>
+            </div>
+            <span className="mt-1.5 text-xs text-[#475569]">
+              Daily goal: {formattedGoal}
+            </span>
+          </button>
+        </div>
       </section>
 
       {/* 3-Column Feature Status Strip */}

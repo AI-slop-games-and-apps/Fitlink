@@ -185,6 +185,20 @@ QString FeeaCodec::describeIncomingFrame(const QByteArray &frame) {
     const uint8_t cmd = static_cast<uint8_t>(frame.at(4));
     const QString hexCmd = QStringLiteral("0x%1").arg(cmd, 2, 16, QLatin1Char('0')).toUpper();
     if (cmd == CmdPushNotification) return QStringLiteral("Notification ACK (%1)").arg(hexCmd);
+    if (cmd == CmdGetDeviceInfo) {
+        if (frame.size() >= 6) {
+            const uint8_t sub = static_cast<uint8_t>(frame.at(5));
+            if (sub == SubCmdDeviceInfoManufacturer) {
+                return QStringLiteral("Device Info · Manufacturer (%1 00)").arg(hexCmd);
+            }
+            if (sub == SubCmdDeviceInfoFirmware) {
+                return QStringLiteral("Device Info · Firmware (%1 01)").arg(hexCmd);
+            }
+            return QStringLiteral("Device Info (%1 %2)")
+                .arg(hexCmd, QStringLiteral("%1").arg(sub, 2, 16, QLatin1Char('0')).toUpper());
+        }
+        return QStringLiteral("Device Info (%1)").arg(hexCmd);
+    }
     if (cmd == CmdGetTimeFormat) return QStringLiteral("Time Format (%1)").arg(hexCmd);
     if (cmd == CmdGetAlarms) return QStringLiteral("Alarms (%1)").arg(hexCmd);
     if (cmd == CmdGetTodayActivity) return QStringLiteral("Steps & Distance (%1)").arg(hexCmd);
@@ -398,6 +412,13 @@ QByteArray FeeaCodec::encodeFindWatch(ProtocolVersion version) {
     return encodeGetCommand(version, CmdFindWatch);
 }
 
+QByteArray FeeaCodec::encodeGetDeviceInfo(ProtocolVersion version, uint8_t subCmd) {
+    // Verified 0x5A device info query: FE EA 20 06 5A <subCmd> (0x00 = manufacturer/protocol, 0x01 = firmware)
+    QByteArray sub;
+    sub.append(static_cast<char>(subCmd));
+    return encodeSubCommand(version, CmdGetDeviceInfo, sub);
+}
+
 QByteArray FeeaCodec::encodeGetTodayActivity(ProtocolVersion version) {
     // Empty-payload get request for today's steps & distance (totalLen = 5: FE EA 10/20 05 81)
     return encodeGetCommand(version, CmdGetTodayActivity);
@@ -530,6 +551,32 @@ ParsedHealthPacket FeeaCodec::parseFeeaHealthResponse(const QByteArray &frame) {
                 out.hasBloodPressure = true;
                 out.systolicMmHg = sys;
                 out.diastolicMmHg = dia;
+                out.valid = true;
+                return out;
+            }
+        }
+    }
+
+    if (cmd == CmdGetDeviceInfo && payload.size() >= 2) {
+        const uint8_t sub = static_cast<uint8_t>(payload.at(0));
+        if (sub == SubCmdDeviceInfoManufacturer || sub == SubCmdDeviceInfoFirmware) {
+            QByteArray asciiBytes;
+            asciiBytes.reserve(static_cast<int>(payload.size()) - 1);
+            for (qsizetype i = 1; i < payload.size(); ++i) {
+                const uint8_t ch = static_cast<uint8_t>(payload.at(i));
+                if (ch >= 0x20 && ch <= 0x7E) {
+                    asciiBytes.append(static_cast<char>(ch));
+                }
+            }
+            const QString text = QString::fromLatin1(asciiBytes).trimmed();
+            if (!text.isEmpty()) {
+                if (sub == SubCmdDeviceInfoManufacturer) {
+                    out.hasManufacturer = true;
+                    out.manufacturer = text;
+                } else {
+                    out.hasFirmware = true;
+                    out.firmware = text;
+                }
                 out.valid = true;
                 return out;
             }

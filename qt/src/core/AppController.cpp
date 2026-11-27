@@ -275,6 +275,15 @@ void AppController::connectToDevice(const QString &addressOrId) { m_ble->connect
 void AppController::disconnectDevice() { m_ble->disconnectDevice(); }
 void AppController::refreshBattery() { m_ble->refreshBattery(); }
 
+void AppController::refreshDeviceInfo() {
+    if (!isConnected()) {
+        emit toastMessage(tr("Connect a watch before refreshing device information"), true);
+        return;
+    }
+    m_ble->refreshDeviceInfo();
+    emit toastMessage(tr("Device information refresh requested"), false);
+}
+
 void AppController::triggerFindWatch() {
     if (m_ble->sendFindWatch()) {
         emit toastMessage(tr("Find Watch alert sent"), false);

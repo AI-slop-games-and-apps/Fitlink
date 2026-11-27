@@ -67,8 +67,10 @@ inline const QBluetoothUuid CharBatteryLevel(QBluetoothUuid::CharacteristicType:
 inline const QBluetoothUuid ServiceDeviceInfo(QBluetoothUuid::ServiceClassUuid::DeviceInformation);
 inline const QBluetoothUuid CharManufacturerName(QBluetoothUuid::CharacteristicType::ManufacturerNameString);
 inline const QBluetoothUuid CharModelNumber(QBluetoothUuid::CharacteristicType::ModelNumberString);
+inline const QBluetoothUuid CharSerialNumber(QBluetoothUuid::CharacteristicType::SerialNumberString);
 inline const QBluetoothUuid CharFirmwareRevision(QBluetoothUuid::CharacteristicType::FirmwareRevisionString);
 inline const QBluetoothUuid CharHardwareRevision(QBluetoothUuid::CharacteristicType::HardwareRevisionString);
+inline const QBluetoothUuid CharSoftwareRevision(QBluetoothUuid::CharacteristicType::SoftwareRevisionString);
 
 inline const QBluetoothUuid ServiceImmediateAlert(QBluetoothUuid::ServiceClassUuid::ImmediateAlert);
 inline const QBluetoothUuid CharAlertLevel(QBluetoothUuid::CharacteristicType::AlertLevel);
@@ -102,6 +104,10 @@ struct ParsedHealthPacket {
     int batteryPercent = -1;
     bool hasWatchAction = false;
     int watchActionCode = -1;
+    bool hasManufacturer = false;
+    QString manufacturer;
+    bool hasFirmware = false;
+    QString firmware;
 };
 
 class FeeaCodec {
@@ -119,6 +125,7 @@ public:
     static constexpr uint8_t CmdGetTimeFormat     = 0x37;
     static constexpr uint8_t CmdSetTime           = 0x31;
     static constexpr uint8_t CmdPushNotification  = 0x41; // Verified 0xFEEA V2 push notification
+    static constexpr uint8_t CmdGetDeviceInfo     = 0x5A; // Sub-cmd: 0x00 manufacturer/protocol, 0x01 firmware
     static constexpr uint8_t CmdFindWatch         = 0x61;
     static constexpr uint8_t CmdPushNotifLegacy   = 0x64;
     static constexpr uint8_t CmdWatchControl      = 0x67; // Watch-to-phone control events (0x03 = Reject Call)
@@ -132,6 +139,8 @@ public:
     static constexpr uint8_t CmdWorkout            = 0xB2; // sub-cmd: 0x00 list req, 0x01 list resp
     static constexpr uint8_t CmdAdvanced           = 0xB9; // sub-commands follow get = set + 0x10
 
+    static constexpr uint8_t SubCmdDeviceInfoManufacturer = 0x00; // Verified TX: FE EA 20 06 5A 00
+    static constexpr uint8_t SubCmdDeviceInfoFirmware     = 0x01; // Verified TX: FE EA 20 06 5A 01
     static constexpr uint8_t WatchActionRejectCall = 0x03; // Verified RX: FE EA 20 06 67 03
     static constexpr uint8_t SubCmdWorkoutListReq  = 0x00;
     static constexpr uint8_t SubCmdWorkoutListResp = 0x01;
@@ -164,6 +173,7 @@ public:
                                              const QString &title,
                                              const QString &body);
     static QByteArray encodeFindWatch(ProtocolVersion version);
+    static QByteArray encodeGetDeviceInfo(ProtocolVersion version, uint8_t subCmd);
     static QByteArray encodeGetTodayActivity(ProtocolVersion version);
     static QByteArray encodeMeasureHeartRate(ProtocolVersion version);
     static QByteArray encodeMeasureSpo2(ProtocolVersion version);

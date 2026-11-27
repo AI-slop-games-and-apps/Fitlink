@@ -15,7 +15,7 @@ ScrollView {
         anchors.topMargin: 24
         spacing: 20
 
-        // Device Information (0x180A)
+        // Device Information (GATT 0x180A + 0x180F + 0xFEEA 0x5A)
         Rectangle {
             Layout.fillWidth: true
             implicitHeight: infoCol.implicitHeight + 40
@@ -28,22 +28,185 @@ ScrollView {
                 id: infoCol
                 anchors.fill: parent
                 anchors.margins: 20
-                spacing: 12
+                spacing: 14
 
-                Label { text: qsTr("Device Information (GATT 0x180A)"); font.pixelSize: 16; font.weight: Font.DemiBold; color: "#0F172A" }
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 12
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 2
+                        Label {
+                            text: qsTr("Device Information")
+                            font.pixelSize: 16
+                            font.weight: Font.DemiBold
+                            color: "#0F172A"
+                        }
+                        Label {
+                            text: qsTr("Live values reported by watch via GATT 0x180A, 0x180F, and 0xFEEA 0x5A")
+                            font.pixelSize: 12
+                            color: "#64748B"
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
+                    }
+
+                    Button {
+                        text: qsTr("Refresh Info")
+                        enabled: appController.isConnected
+                        flat: false
+                        onClicked: appController.refreshDeviceInfo()
+                    }
+                }
 
                 GridLayout {
                     Layout.fillWidth: true
                     columns: root.width < 600 ? 1 : 2
                     columnSpacing: 24
-                    rowSpacing: 10
+                    rowSpacing: 12
 
-                    Label { text: qsTr("Manufacturer: %1").arg(appController.deviceInfo.manufacturer || "-"); color: "#0F172A" }
-                    Label { text: qsTr("Model: %1").arg(appController.deviceInfo.model || "-"); color: "#0F172A" }
-                    Label { text: qsTr("Firmware: %1").arg(appController.deviceInfo.firmware || "-"); color: "#0F172A" }
-                    Label { text: qsTr("Hardware: %1").arg(appController.deviceInfo.hardware || "-"); color: "#0F172A" }
-                    Label { text: qsTr("Detected Protocol: %1").arg(appController.detectedProtocolLabel); color: "#475569" }
-                    Label { text: qsTr("BLE Address: %1").arg(appController.deviceAddress || "-"); color: "#475569" }
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 2
+                        Label { text: qsTr("Device Name (BLE GAP)"); font.pixelSize: 12; color: "#64748B" }
+                        Label {
+                            text: appController.isConnected && appController.deviceName ? appController.deviceName : "-"
+                            font.pixelSize: 14
+                            font.family: "monospace"
+                            font.weight: Font.Medium
+                            color: "#0F172A"
+                            elide: Text.ElideRight
+                            Layout.fillWidth: true
+                        }
+                    }
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 2
+                        Label { text: qsTr("Manufacturer / Protocol (0x2A29 · 0x5A 00)"); font.pixelSize: 12; color: "#64748B" }
+                        Label {
+                            text: appController.deviceInfo.manufacturer || "-"
+                            font.pixelSize: 14
+                            font.family: "monospace"
+                            font.weight: Font.Medium
+                            color: "#0F172A"
+                            elide: Text.ElideRight
+                            Layout.fillWidth: true
+                        }
+                    }
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 2
+                        Label { text: qsTr("Firmware Version (0x2A26 · 0x5A 01)"); font.pixelSize: 12; color: "#64748B" }
+                        Label {
+                            text: appController.deviceInfo.firmware || "-"
+                            font.pixelSize: 14
+                            font.family: "monospace"
+                            font.weight: Font.Medium
+                            color: "#0F172A"
+                            elide: Text.ElideRight
+                            Layout.fillWidth: true
+                        }
+                    }
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 2
+                        Label { text: qsTr("Detected / Active Protocol"); font.pixelSize: 12; color: "#64748B" }
+                        Label {
+                            text: qsTr("%1 · %2").arg(appController.detectedProtocolLabel).arg(appController.activeProtocolLabel)
+                            font.pixelSize: 14
+                            font.weight: Font.Medium
+                            color: "#0F172A"
+                            elide: Text.ElideRight
+                            Layout.fillWidth: true
+                        }
+                    }
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 2
+                        Label { text: qsTr("Battery Level (0x2A19)"); font.pixelSize: 12; color: "#64748B" }
+                        Label {
+                            text: appController.batteryLevel >= 0 ? appController.batteryLevel + "%" : "-"
+                            font.pixelSize: 14
+                            font.family: "monospace"
+                            font.weight: Font.Medium
+                            color: "#0F172A"
+                        }
+                    }
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 2
+                        Label { text: qsTr("BLE Address / Device ID"); font.pixelSize: 12; color: "#64748B" }
+                        Label {
+                            text: appController.deviceAddress || "-"
+                            font.pixelSize: 14
+                            font.family: "monospace"
+                            color: "#475569"
+                            elide: Text.ElideRight
+                            Layout.fillWidth: true
+                        }
+                    }
+
+                    ColumnLayout {
+                        visible: Boolean(appController.deviceInfo.software) && appController.deviceInfo.software !== appController.deviceInfo.firmware
+                        Layout.fillWidth: true
+                        spacing: 2
+                        Label { text: qsTr("Software Revision (0x2A28)"); font.pixelSize: 12; color: "#64748B" }
+                        Label {
+                            text: appController.deviceInfo.software || "-"
+                            font.pixelSize: 14
+                            font.family: "monospace"
+                            font.weight: Font.Medium
+                            color: "#0F172A"
+                        }
+                    }
+
+                    ColumnLayout {
+                        visible: Boolean(appController.deviceInfo.model)
+                        Layout.fillWidth: true
+                        spacing: 2
+                        Label { text: qsTr("Model Number (0x2A24)"); font.pixelSize: 12; color: "#64748B" }
+                        Label {
+                            text: appController.deviceInfo.model || "-"
+                            font.pixelSize: 14
+                            font.family: "monospace"
+                            font.weight: Font.Medium
+                            color: "#0F172A"
+                        }
+                    }
+
+                    ColumnLayout {
+                        visible: Boolean(appController.deviceInfo.hardware)
+                        Layout.fillWidth: true
+                        spacing: 2
+                        Label { text: qsTr("Hardware Revision (0x2A27)"); font.pixelSize: 12; color: "#64748B" }
+                        Label {
+                            text: appController.deviceInfo.hardware || "-"
+                            font.pixelSize: 14
+                            font.family: "monospace"
+                            font.weight: Font.Medium
+                            color: "#0F172A"
+                        }
+                    }
+
+                    ColumnLayout {
+                        visible: Boolean(appController.deviceInfo.serial)
+                        Layout.fillWidth: true
+                        spacing: 2
+                        Label { text: qsTr("Serial Number (0x2A25)"); font.pixelSize: 12; color: "#64748B" }
+                        Label {
+                            text: appController.deviceInfo.serial || "-"
+                            font.pixelSize: 14
+                            font.family: "monospace"
+                            font.weight: Font.Medium
+                            color: "#0F172A"
+                        }
+                    }
                 }
             }
         }

@@ -94,6 +94,7 @@ public:
                           int formatOverride = -1);
     bool sendFindWatch();
     void refreshBattery();
+    void refreshDeviceInfo();
     bool requestHealthSync();
     bool requestHeartRateReading();
     bool requestSpo2Reading();

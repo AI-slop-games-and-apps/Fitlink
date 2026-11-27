@@ -164,6 +164,7 @@ public:
     Q_INVOKABLE void connectToDevice(const QString &addressOrId);
     Q_INVOKABLE void disconnectDevice();
     Q_INVOKABLE void refreshBattery();
+    Q_INVOKABLE void refreshDeviceInfo();
     Q_INVOKABLE void triggerFindWatch();
 
     // Time actions

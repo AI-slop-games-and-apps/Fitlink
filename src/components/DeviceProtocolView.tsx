@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Check, ChevronDown, Copy, RotateCcw, Trash2 } from 'lucide-react';
+import { Check, ChevronDown, Copy, RefreshCw, RotateCcw, Trash2 } from 'lucide-react';
 import {
   formatProtocolLabel,
   resolveProtocolVersion,
@@ -10,6 +10,7 @@ import type { PacketLogEntry, WatchRuntimeState } from '../types/fitlink';
 interface DeviceProtocolViewProps {
   watch: WatchRuntimeState;
   packetLog: PacketLogEntry[];
+  onRefreshDeviceInfo: () => void;
   onChangeProtocolPreference: (pref: ProtocolPreference) => void;
   onChangeMtuSize: (mtu: number) => void;
   onChangeWriteDelay: (delayMs: number) => void;
@@ -19,6 +20,7 @@ interface DeviceProtocolViewProps {
 export function DeviceProtocolView({
   watch,
   packetLog,
+  onRefreshDeviceInfo,
   onChangeProtocolPreference,
   onChangeMtuSize,
   onChangeWriteDelay,
@@ -41,34 +43,45 @@ export function DeviceProtocolView({
 
   return (
     <div className="mx-auto max-w-5xl space-y-6 p-4 sm:p-6 lg:p-8">
-      {/* Device Info (GATT 0x180A) */}
+      {/* Device Info (GATT 0x180A + 0xFEEA 0x5A) */}
       <section className="rounded-2xl border border-[#E2E8F0] bg-white p-6">
-        <h3 className="text-base font-semibold text-[#0F172A]">
-          Device Information (GATT 0x180A)
-        </h3>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-base font-semibold text-[#0F172A]">
+              Device Information
+            </h3>
+            <p className="mt-0.5 text-xs text-[#64748B]">
+              Live values reported by watch via GATT 0x180A, 0x180F, and 0xFEEA 0x5A
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={!watch.isConnected}
+            onClick={onRefreshDeviceInfo}
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#CBD5E1] bg-white px-3 text-xs font-medium text-[#0F172A] transition-colors hover:bg-[#F8FAFC] focus-visible:outline-2 focus-visible:outline-[#2563EB] disabled:cursor-not-allowed disabled:opacity-40 whitespace-nowrap"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            <span>Refresh Info</span>
+          </button>
+        </div>
+
         <dl className="mt-4 grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
           <div>
-            <dt className="text-xs text-[#64748B]">Manufacturer (0x2A29)</dt>
+            <dt className="text-xs text-[#64748B]">Device Name (BLE GAP)</dt>
+            <dd className="mt-1 font-mono text-sm font-medium text-[#0F172A]">
+              {watch.isConnected && watch.deviceName ? watch.deviceName : '-'}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs text-[#64748B]">Manufacturer / Protocol (0x2A29 · 0x5A 00)</dt>
             <dd className="mt-1 font-mono text-sm font-medium text-[#0F172A]">
               {watch.deviceInfo.manufacturer}
             </dd>
           </div>
           <div>
-            <dt className="text-xs text-[#64748B]">Model Number (0x2A24)</dt>
-            <dd className="mt-1 font-mono text-sm font-medium text-[#0F172A]">
-              {watch.deviceInfo.model}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs text-[#64748B]">Firmware Revision (0x2A26)</dt>
+            <dt className="text-xs text-[#64748B]">Firmware Version (0x2A26 · 0x5A 01)</dt>
             <dd className="mt-1 font-mono text-sm font-medium text-[#0F172A]">
               {watch.deviceInfo.firmware}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs text-[#64748B]">Hardware Revision (0x2A27)</dt>
-            <dd className="mt-1 font-mono text-sm font-medium text-[#0F172A]">
-              {watch.deviceInfo.hardware}
             </dd>
           </div>
           <div>
@@ -79,11 +92,49 @@ export function DeviceProtocolView({
             </dd>
           </div>
           <div>
+            <dt className="text-xs text-[#64748B]">Battery Level (0x2A19)</dt>
+            <dd className="mt-1 font-mono text-sm font-medium text-[#0F172A] tabular-nums">
+              {watch.batteryLevel !== null ? `${watch.batteryLevel}%` : '-'}
+            </dd>
+          </div>
+          <div>
             <dt className="text-xs text-[#64748B]">BLE Address / Device ID</dt>
             <dd className="mt-1 truncate font-mono text-sm text-[#475569] tabular-nums">
               {watch.deviceId || '-'}
             </dd>
           </div>
+          {watch.deviceInfo.software !== '-' && watch.deviceInfo.software !== watch.deviceInfo.firmware && (
+            <div>
+              <dt className="text-xs text-[#64748B]">Software Revision (0x2A28)</dt>
+              <dd className="mt-1 font-mono text-sm font-medium text-[#0F172A]">
+                {watch.deviceInfo.software}
+              </dd>
+            </div>
+          )}
+          {watch.deviceInfo.model !== '-' && (
+            <div>
+              <dt className="text-xs text-[#64748B]">Model Number (0x2A24)</dt>
+              <dd className="mt-1 font-mono text-sm font-medium text-[#0F172A]">
+                {watch.deviceInfo.model}
+              </dd>
+            </div>
+          )}
+          {watch.deviceInfo.hardware !== '-' && (
+            <div>
+              <dt className="text-xs text-[#64748B]">Hardware Revision (0x2A27)</dt>
+              <dd className="mt-1 font-mono text-sm font-medium text-[#0F172A]">
+                {watch.deviceInfo.hardware}
+              </dd>
+            </div>
+          )}
+          {watch.deviceInfo.serial !== '-' && (
+            <div>
+              <dt className="text-xs text-[#64748B]">Serial Number (0x2A25)</dt>
+              <dd className="mt-1 font-mono text-sm font-medium text-[#0F172A]">
+                {watch.deviceInfo.serial}
+              </dd>
+            </div>
+          )}
         </dl>
       </section>
 

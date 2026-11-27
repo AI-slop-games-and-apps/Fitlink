@@ -54,8 +54,10 @@ export const GATT_UUIDS = {
   SERVICE_DEVICE_INFO: 0x180a,
   CHAR_MANUFACTURER_NAME: 0x2a29,
   CHAR_MODEL_NUMBER: 0x2a24,
+  CHAR_SERIAL_NUMBER: 0x2a25,
   CHAR_FIRMWARE_REV: 0x2a26,
   CHAR_HARDWARE_REV: 0x2a27,
+  CHAR_SOFTWARE_REV: 0x2a28,
   SERVICE_IMMEDIATE_ALERT: 0x1802,
   CHAR_ALERT_LEVEL: 0x2a06,
   SERVICE_ALERT_NOTIFICATION: 0x1811,
@@ -74,6 +76,7 @@ export const FEEA_CMD = {
   GET_TIME_FORMAT: 0x37,
   SET_TIME: 0x31,
   PUSH_NOTIFICATION: 0x41, // Verified 0xFEEA V2 notification push: FE EA 20 <len> 41 <icon> <Title:Body>
+  GET_DEVICE_INFO: 0x5a, // Verified 0xFEEA device info query: 5A 00 (manufacturer/protocol), 5A 01 (firmware)
   FIND_WATCH: 0x61,
   PUSH_NOTIFICATION_LEGACY: 0x64,
   WATCH_CONTROL: 0x67, // Watch-to-phone control actions (e.g., 0x03 = Reject / Cut Call)
@@ -88,6 +91,11 @@ export const FEEA_CMD = {
   ADVANCED: 0xb9, // sub-commands follow get = set + 0x10
 } as const;
 
+export const FEEA_DEVICE_INFO_SUBCMD = {
+  MANUFACTURER: 0x00, // FE EA 20 06 5A 00 -> FE EA 20 LL 5A 00 <ASCII>
+  FIRMWARE: 0x01,     // FE EA 20 06 5A 01 -> FE EA 20 LL 5A 01 <ASCII>
+} as const;
+
 export const FEEA_WATCH_ACTION = {
   REJECT_CALL: 0x03, // Verified watch-to-phone payload: FE EA 20 06 67 03
 } as const;
@@ -99,7 +107,7 @@ export const FEEA_SUBCMD = {
 } as const;
 
 export interface ParsedHealthPacket {
-  type: 'none' | 'activity' | 'heartRate' | 'spo2' | 'bloodPressure' | 'battery' | 'watchAction';
+  type: 'none' | 'activity' | 'heartRate' | 'spo2' | 'bloodPressure' | 'battery' | 'watchAction' | 'deviceInfo';
   dayOffset: number;
   steps: number;
   distanceMeters: number;
@@ -109,6 +117,8 @@ export interface ParsedHealthPacket {
   diastolicMmHg: number;
   batteryPercent: number;
   watchActionCode: number;
+  deviceInfoField: 'manufacturer' | 'firmware' | '';
+  deviceInfoValue: string;
 }
 
 export function detectProtocolFromManufacturer(manufacturer: string): ProtocolVersion {
@@ -169,6 +179,19 @@ export function describeIncomingFrame(frame: Uint8Array): string {
   const cmd = frame[4];
   const hexCmd = `0x${cmd.toString(16).padStart(2, '0').toUpperCase()}`;
   if (cmd === FEEA_CMD.PUSH_NOTIFICATION) return `Notification ACK (${hexCmd})`;
+  if (cmd === FEEA_CMD.GET_DEVICE_INFO) {
+    if (frame.length >= 6 && frame[5] === FEEA_DEVICE_INFO_SUBCMD.MANUFACTURER) {
+      return `Device Info · Manufacturer (${hexCmd} 00)`;
+    }
+    if (frame.length >= 6 && frame[5] === FEEA_DEVICE_INFO_SUBCMD.FIRMWARE) {
+      return `Device Info · Firmware (${hexCmd} 01)`;
+    }
+    if (frame.length >= 6) {
+      const sub = frame[5].toString(16).padStart(2, '0').toUpperCase();
+      return `Device Info (${hexCmd} ${sub})`;
+    }
+    return `Device Info (${hexCmd})`;
+  }
   if (cmd === FEEA_CMD.GET_TIME_FORMAT) return `Time Format (${hexCmd})`;
   if (cmd === FEEA_CMD.GET_ALARMS) return `Alarms (${hexCmd})`;
   if (cmd === FEEA_CMD.WATCH_CONTROL) {
@@ -382,6 +405,11 @@ export function encodeFindWatch(version: 'v1' | 'v2'): Uint8Array {
   return encodeGetCommand(version, FEEA_CMD.FIND_WATCH);
 }
 
+export function encodeGetDeviceInfo(version: 'v1' | 'v2', subCmd: number): Uint8Array {
+  // Verified 0x5A device info query: FE EA 20 06 5A 00 (manufacturer/protocol), 5A 01 (firmware)
+  return framePacket(version, FEEA_CMD.GET_DEVICE_INFO, new Uint8Array([subCmd & 0xff]));
+}
+
 export function encodeGetTodayActivity(version: 'v1' | 'v2'): Uint8Array {
   // Empty-payload get request for today's steps & distance: FE EA 10/20 05 81
   return encodeGetCommand(version, FEEA_CMD.GET_TODAY_ACTIVITY);
@@ -481,6 +509,8 @@ export function parseFee1Activity(value: Uint8Array): ParsedHealthPacket {
     diastolicMmHg: 0,
     batteryPercent: -1,
     watchActionCode: -1,
+    deviceInfoField: '',
+    deviceInfoValue: '',
   };
   if (value.length === 0) return empty;
   if (value.length >= 6 && value[0] === 0xfe && value[1] === 0xea) {
@@ -499,6 +529,8 @@ export function parseFee1Activity(value: Uint8Array): ParsedHealthPacket {
   return empty;
 }
 
+const utf8Decoder = new TextDecoder('utf-8');
+
 export function parseFeeaHealthResponse(frame: Uint8Array): ParsedHealthPacket {
   const empty: ParsedHealthPacket = {
     type: 'none',
@@ -511,6 +543,8 @@ export function parseFeeaHealthResponse(frame: Uint8Array): ParsedHealthPacket {
     diastolicMmHg: 0,
     batteryPercent: -1,
     watchActionCode: -1,
+    deviceInfoField: '',
+    deviceInfoValue: '',
   };
   if (frame.length < 6 || frame[0] !== 0xfe || frame[1] !== 0xea) {
     return empty;
@@ -518,6 +552,30 @@ export function parseFeeaHealthResponse(frame: Uint8Array): ParsedHealthPacket {
 
   const cmd = frame[4];
   const payload = frame.subarray(5);
+
+  if (cmd === FEEA_CMD.GET_DEVICE_INFO && payload.length >= 2) {
+    const sub = payload[0];
+    const text = utf8Decoder.decode(payload.subarray(1)).replace(/\0/g, '').trim();
+    if (text.length > 0 && /^[\x20-\x7e]+$/.test(text)) {
+      if (sub === FEEA_DEVICE_INFO_SUBCMD.MANUFACTURER) {
+        return {
+          ...empty,
+          type: 'deviceInfo',
+          deviceInfoField: 'manufacturer',
+          deviceInfoValue: text,
+        };
+      }
+      if (sub === FEEA_DEVICE_INFO_SUBCMD.FIRMWARE) {
+        return {
+          ...empty,
+          type: 'deviceInfo',
+          deviceInfoField: 'firmware',
+          deviceInfoValue: text,
+        };
+      }
+    }
+    return empty;
+  }
 
   if (cmd === FEEA_CMD.WATCH_CONTROL && payload.length >= 1) {
     return {

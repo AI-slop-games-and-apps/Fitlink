@@ -284,7 +284,9 @@ ApplicationWindow {
                 Layout.fillHeight: true
                 currentIndex: window.currentTab
 
-                OverviewView {}
+                OverviewView {
+                    onOpenActivityRequested: window.currentTab = 1
+                }
                 ActivityView {}
                 TimeSyncView {}
                 NotificationsView {}

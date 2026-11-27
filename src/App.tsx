@@ -7,9 +7,12 @@ import { NotificationsView } from './components/NotificationsView';
 import { OverviewView } from './components/OverviewView';
 import { TimeSyncView } from './components/TimeSyncView';
 import {
+  FEEA_DEVICE_INFO_SUBCMD,
   NOTIFICATION_FORMAT_OPTIONS,
   bytesToHex,
+  detectProtocolFromManufacturer,
   encodeFindWatch,
+  encodeGetDeviceInfo,
   encodeGetTodayActivity,
   encodeMeasureBloodPressure,
   encodeMeasureHeartRate,
@@ -289,7 +292,14 @@ export default function App() {
     deviceName: '',
     deviceId: '',
     batteryLevel: null,
-    deviceInfo: { manufacturer: '-', model: '-', firmware: '-', hardware: '-' },
+    deviceInfo: {
+      manufacturer: '-',
+      model: '-',
+      firmware: '-',
+      software: '-',
+      hardware: '-',
+      serial: '-',
+    },
     detectedProtocol: 'unknown',
     protocolPreference: initial.protocolPreference,
     mtuSize: initial.mtuSize,
@@ -438,6 +448,18 @@ export default function App() {
         ...prev,
         isConnected: false,
         isVirtual: false,
+        deviceName: '',
+        deviceId: '',
+        batteryLevel: null,
+        deviceInfo: {
+          manufacturer: '-',
+          model: '-',
+          firmware: '-',
+          software: '-',
+          hardware: '-',
+          serial: '-',
+        },
+        detectedProtocol: 'unknown',
       }));
       appendLog({
         direction: 'system',
@@ -570,6 +592,27 @@ export default function App() {
         const hex = actionCode.toString(16).padStart(2, '0').toUpperCase();
         showToast(`Watch control event received (0x67 ${hex})`);
       }
+    };
+    session.onDeviceInfoReceived = (patch) => {
+      setWatch((prev) => {
+        const nextInfo = {
+          ...prev.deviceInfo,
+          ...(patch.manufacturer ? { manufacturer: patch.manufacturer } : {}),
+          ...(patch.firmware ? { firmware: patch.firmware } : {}),
+          ...(patch.software ? { software: patch.software } : {}),
+          ...(patch.model ? { model: patch.model } : {}),
+          ...(patch.hardware ? { hardware: patch.hardware } : {}),
+          ...(patch.serial ? { serial: patch.serial } : {}),
+        };
+        const nextDetected = patch.manufacturer
+          ? detectProtocolFromManufacturer(patch.manufacturer)
+          : prev.detectedProtocol;
+        return {
+          ...prev,
+          deviceInfo: nextInfo,
+          detectedProtocol: nextDetected !== 'unknown' ? nextDetected : prev.detectedProtocol,
+        };
+      });
     };
   }, [appendLog, showToast]);
 
@@ -906,9 +949,70 @@ export default function App() {
       }
       setConnectDialogOpen(false);
       showToast(`Connected to ${result.deviceName}`);
+
+      // Query verified 0xFEEA 0x5A Device Info (5A 00 manufacturer/protocol, 5A 01 firmware)
+      void (async () => {
+        await transmitPacket(
+          'Get Device Info · Manufacturer (0x5A 00)',
+          encodeGetDeviceInfo(resolved, FEEA_DEVICE_INFO_SUBCMD.MANUFACTURER),
+          resolved,
+          true
+        );
+        await new Promise((r) => setTimeout(r, 80));
+        await transmitPacket(
+          'Get Device Info · Firmware (0x5A 01)',
+          encodeGetDeviceInfo(resolved, FEEA_DEVICE_INFO_SUBCMD.FIRMWARE),
+          resolved,
+          true
+        );
+      })();
     },
-    [appendLog, showToast, watch.protocolPreference]
+    [appendLog, showToast, transmitPacket, watch.protocolPreference]
   );
+
+  const handleRefreshDeviceInfo = useCallback(async () => {
+    if (!watch.isConnected) {
+      showToast('Connect a watch before refreshing device info', true);
+      return;
+    }
+    const resolved = resolveProtocolVersion(watch.detectedProtocol, watch.protocolPreference);
+    const session = sessionRef.current!;
+    if (!watch.isVirtual) {
+      const gattInfo = await session.readDeviceInfoGatt();
+      const batt = await session.readBattery();
+      setWatch((prev) => {
+        const merged = {
+          manufacturer: gattInfo.manufacturer !== '-' ? gattInfo.manufacturer : prev.deviceInfo.manufacturer,
+          model: gattInfo.model !== '-' ? gattInfo.model : prev.deviceInfo.model,
+          firmware: gattInfo.firmware !== '-' ? gattInfo.firmware : prev.deviceInfo.firmware,
+          software: gattInfo.software !== '-' ? gattInfo.software : prev.deviceInfo.software,
+          hardware: gattInfo.hardware !== '-' ? gattInfo.hardware : prev.deviceInfo.hardware,
+          serial: gattInfo.serial !== '-' ? gattInfo.serial : prev.deviceInfo.serial,
+        };
+        const detected = detectProtocolFromManufacturer(merged.manufacturer);
+        return {
+          ...prev,
+          batteryLevel: batt !== null ? batt : prev.batteryLevel,
+          deviceInfo: merged,
+          detectedProtocol: detected !== 'unknown' ? detected : prev.detectedProtocol,
+        };
+      });
+    }
+    await transmitPacket(
+      'Get Device Info · Manufacturer (0x5A 00)',
+      encodeGetDeviceInfo(resolved, FEEA_DEVICE_INFO_SUBCMD.MANUFACTURER),
+      resolved,
+      true
+    );
+    await new Promise((r) => setTimeout(r, 80));
+    await transmitPacket(
+      'Get Device Info · Firmware (0x5A 01)',
+      encodeGetDeviceInfo(resolved, FEEA_DEVICE_INFO_SUBCMD.FIRMWARE),
+      resolved,
+      true
+    );
+    showToast('Device information refreshed');
+  }, [showToast, transmitPacket, watch.detectedProtocol, watch.isConnected, watch.isVirtual, watch.protocolPreference]);
 
   const handlePairWebBluetooth = async () => {
     setIsConnecting(true);
@@ -966,6 +1070,18 @@ export default function App() {
       ...prev,
       isConnected: false,
       isVirtual: false,
+      deviceName: '',
+      deviceId: '',
+      batteryLevel: null,
+      deviceInfo: {
+        manufacturer: '-',
+        model: '-',
+        firmware: '-',
+        software: '-',
+        hardware: '-',
+        serial: '-',
+      },
+      detectedProtocol: 'unknown',
     }));
     appendLog({
       direction: 'system',
@@ -1273,12 +1389,18 @@ export default function App() {
               osPlatformMode={osPlatformMode}
               scheduledAlerts={scheduledAlerts}
               packetLog={packetLog}
+              todaySteps={todaySteps}
+              todayDistanceMeters={todayDistanceMeters}
+              distanceUnit={activityState.distanceUnit}
+              dailyDistanceGoalMeters={activityState.dailyDistanceGoalMeters}
+              isSyncingActivity={isSyncingActivity}
               isVibrating={isVibrating}
               activeWatchBanner={activeWatchBanner}
               onOpenConnect={() => setConnectDialogOpen(true)}
               onSyncTimeNow={() => void handleSyncTime()}
               onFindWatch={() => void handleFindWatch()}
               onRefreshBattery={() => void handleRefreshBattery()}
+              onRefreshActivity={() => void handleRefreshActivity()}
               onNavigate={(tab) => setActiveTab(tab)}
             />
           )}
@@ -1432,6 +1554,7 @@ export default function App() {
             <DeviceProtocolView
               watch={watch}
               packetLog={packetLog}
+              onRefreshDeviceInfo={() => void handleRefreshDeviceInfo()}
               onChangeProtocolPreference={(pref) =>
                 setWatch((prev) => ({ ...prev, protocolPreference: pref }))
               }

@@ -305,6 +305,15 @@ void BleWatchManager::connectToDevice(const QString &addressOrId) {
 
 void BleWatchManager::disconnectDevice() {
     cleanupConnection();
+    m_deviceName.clear();
+    m_deviceAddress.clear();
+    m_batteryLevel = -1;
+    m_deviceInfo.clear();
+    m_detectedProtocol = ProtocolVersion::Unknown;
+    emit connectedDeviceChanged();
+    emit batteryLevelChanged(m_batteryLevel);
+    emit deviceInfoChanged();
+    emit protocolChanged();
     setState(ConnectionState::Disconnected);
 }
 
@@ -394,12 +403,22 @@ void BleWatchManager::onControllerMtuChanged(int mtu) {
 }
 
 void BleWatchManager::onControllerDisconnected() {
+    const QString prevAddr = m_deviceAddress;
     cleanupConnection();
+    m_deviceName.clear();
+    m_deviceAddress.clear();
+    m_batteryLevel = -1;
+    m_deviceInfo.clear();
+    m_detectedProtocol = ProtocolVersion::Unknown;
+    emit connectedDeviceChanged();
+    emit batteryLevelChanged(m_batteryLevel);
+    emit deviceInfoChanged();
+    emit protocolChanged();
     setState(ConnectionState::Disconnected);
     emit packetLogged(QStringLiteral("system"),
                       tr("BLE Disconnected"),
                       QStringLiteral("-"),
-                      m_deviceAddress,
+                      prevAddr,
                       0,
                       QStringLiteral("sent"));
 }
@@ -571,7 +590,9 @@ void BleWatchManager::onDeviceInfoServiceStateChanged(QLowEnergyService::Service
         { GattUuids::CharManufacturerName, tr("Read Manufacturer") },
         { GattUuids::CharModelNumber,      tr("Read Model Number") },
         { GattUuids::CharFirmwareRevision, tr("Read Firmware Rev") },
-        { GattUuids::CharHardwareRevision, tr("Read Hardware Rev") }
+        { GattUuids::CharSoftwareRevision, tr("Read Software Rev") },
+        { GattUuids::CharHardwareRevision, tr("Read Hardware Rev") },
+        { GattUuids::CharSerialNumber,     tr("Read Serial Number") }
     };
     for (const auto &entry : charsToRead) {
         const auto ch = m_deviceInfoService->characteristic(entry.first);
@@ -847,6 +868,17 @@ void BleWatchManager::processGattOpQueue() {
                           0,
                           m_dataOutChar.isValid() ? QStringLiteral("ack") : QStringLiteral("error"));
         setState(ConnectionState::Connected);
+        // Query authoritative watch-reported Manufacturer/Protocol (0x5A 00) and Firmware (0x5A 01)
+        if (m_dataOutChar.isValid()) {
+            enqueuePacket(
+                FeeaCodec::encodeGetDeviceInfo(activeVer, FeeaCodec::SubCmdDeviceInfoManufacturer),
+                tr("Query Device Info (0x5A 00)")
+            );
+            enqueuePacket(
+                FeeaCodec::encodeGetDeviceInfo(activeVer, FeeaCodec::SubCmdDeviceInfoFirmware),
+                tr("Query Firmware Info (0x5A 01)")
+            );
+        }
     }
 }
 
@@ -925,6 +957,19 @@ void BleWatchManager::handleParsedHealth(const ParsedHealthPacket &parsed) {
     if (parsed.hasWatchAction && parsed.watchActionCode >= 0) {
         emit watchActionReceived(parsed.watchActionCode);
     }
+    if (parsed.hasManufacturer && !parsed.manufacturer.isEmpty()) {
+        m_deviceInfo[QStringLiteral("manufacturer")] = parsed.manufacturer;
+        const auto detected = FeeaCodec::detectFromManufacturer(parsed.manufacturer);
+        if (detected != ProtocolVersion::Unknown) {
+            m_detectedProtocol = detected;
+            emit protocolChanged();
+        }
+        emit deviceInfoChanged();
+    }
+    if (parsed.hasFirmware && !parsed.firmware.isEmpty()) {
+        m_deviceInfo[QStringLiteral("firmware")] = parsed.firmware;
+        emit deviceInfoChanged();
+    }
 }
 
 void BleWatchManager::onCharacteristicRead(const QLowEnergyCharacteristic &characteristic, const QByteArray &value) {
@@ -943,20 +988,31 @@ void BleWatchManager::onCharacteristicRead(const QLowEnergyCharacteristic &chara
         QByteArray cleaned = value;
         cleaned.replace('\0', QByteArray());
         const QString text = QString::fromUtf8(cleaned).trimmed();
-        if (characteristic.uuid() == GattUuids::CharManufacturerName) {
-            m_deviceInfo[QStringLiteral("manufacturer")] = text;
-            m_detectedProtocol = FeeaCodec::detectFromManufacturer(text);
-            emit protocolChanged();
-            emit deviceInfoChanged();
-        } else if (characteristic.uuid() == GattUuids::CharModelNumber) {
-            m_deviceInfo[QStringLiteral("model")] = text;
-            emit deviceInfoChanged();
-        } else if (characteristic.uuid() == GattUuids::CharFirmwareRevision) {
-            m_deviceInfo[QStringLiteral("firmware")] = text;
-            emit deviceInfoChanged();
-        } else if (characteristic.uuid() == GattUuids::CharHardwareRevision) {
-            m_deviceInfo[QStringLiteral("hardware")] = text;
-            emit deviceInfoChanged();
+        if (!text.isEmpty()) {
+            if (characteristic.uuid() == GattUuids::CharManufacturerName) {
+                m_deviceInfo[QStringLiteral("manufacturer")] = text;
+                m_detectedProtocol = FeeaCodec::detectFromManufacturer(text);
+                emit protocolChanged();
+                emit deviceInfoChanged();
+            } else if (characteristic.uuid() == GattUuids::CharModelNumber) {
+                m_deviceInfo[QStringLiteral("model")] = text;
+                emit deviceInfoChanged();
+            } else if (characteristic.uuid() == GattUuids::CharFirmwareRevision) {
+                m_deviceInfo[QStringLiteral("firmware")] = text;
+                emit deviceInfoChanged();
+            } else if (characteristic.uuid() == GattUuids::CharSoftwareRevision) {
+                m_deviceInfo[QStringLiteral("software")] = text;
+                if (m_deviceInfo.value(QStringLiteral("firmware")).toString().trimmed().isEmpty()) {
+                    m_deviceInfo[QStringLiteral("firmware")] = text;
+                }
+                emit deviceInfoChanged();
+            } else if (characteristic.uuid() == GattUuids::CharHardwareRevision) {
+                m_deviceInfo[QStringLiteral("hardware")] = text;
+                emit deviceInfoChanged();
+            } else if (characteristic.uuid() == GattUuids::CharSerialNumber) {
+                m_deviceInfo[QStringLiteral("serial")] = text;
+                emit deviceInfoChanged();
+            }
         }
     }
 
@@ -1175,6 +1231,40 @@ bool BleWatchManager::sendFindWatch() {
 void BleWatchManager::refreshBattery() {
     if (m_batteryService && m_batteryChar.isValid()) {
         enqueueReadChar(m_batteryService, m_batteryChar, tr("Refresh Battery"));
+    }
+}
+
+void BleWatchManager::refreshDeviceInfo() {
+    if (m_state != ConnectionState::Connected) {
+        return;
+    }
+    if (m_deviceInfoService) {
+        const QList<QPair<QBluetoothUuid, QString>> charsToRead = {
+            { GattUuids::CharManufacturerName, tr("Read Manufacturer") },
+            { GattUuids::CharModelNumber,      tr("Read Model Number") },
+            { GattUuids::CharFirmwareRevision, tr("Read Firmware Rev") },
+            { GattUuids::CharSoftwareRevision, tr("Read Software Rev") },
+            { GattUuids::CharHardwareRevision, tr("Read Hardware Rev") },
+            { GattUuids::CharSerialNumber,     tr("Read Serial Number") }
+        };
+        for (const auto &entry : charsToRead) {
+            const auto ch = m_deviceInfoService->characteristic(entry.first);
+            if (ch.isValid()) {
+                enqueueReadChar(m_deviceInfoService, ch, entry.second);
+            }
+        }
+    }
+    refreshBattery();
+    if (m_dataOutChar.isValid()) {
+        const auto activeVer = FeeaCodec::resolveVersion(m_detectedProtocol, m_protocolPref);
+        enqueuePacket(
+            FeeaCodec::encodeGetDeviceInfo(activeVer, FeeaCodec::SubCmdDeviceInfoManufacturer),
+            tr("Query Device Info (0x5A 00)")
+        );
+        enqueuePacket(
+            FeeaCodec::encodeGetDeviceInfo(activeVer, FeeaCodec::SubCmdDeviceInfoFirmware),
+            tr("Query Firmware Info (0x5A 01)")
+        );
     }
 }
 

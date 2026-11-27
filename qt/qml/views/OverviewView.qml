@@ -9,6 +9,8 @@ ScrollView {
     contentWidth: availableWidth
     clip: true
 
+    signal openActivityRequested()
+
     ColumnLayout {
         width: root.availableWidth < 540 ? root.availableWidth - 24 : Math.min(root.availableWidth - 48, 960)
         anchors.horizontalCenter: parent.horizontalCenter
@@ -68,11 +70,34 @@ ScrollView {
                             color: appController.batteryLevel >= 0 && appController.batteryLevel <= 20 ? "#D97706" : "#0F172A"
                             Layout.alignment: Qt.AlignRight
                         }
-                        Label {
-                            text: qsTr("Battery")
-                            font.pixelSize: 12
-                            color: "#64748B"
+                        RowLayout {
                             Layout.alignment: Qt.AlignRight
+                            spacing: 4
+                            Label {
+                                text: qsTr("Battery")
+                                font.pixelSize: 12
+                                color: "#64748B"
+                            }
+                            AbstractButton {
+                                id: refreshBattBtn
+                                visible: appController.isConnected
+                                padding: 0
+                                implicitWidth: 22
+                                implicitHeight: 22
+                                onClicked: appController.refreshBattery()
+                                background: Rectangle {
+                                    radius: 6
+                                    color: refreshBattBtn.pressed ? "#E2E8F0" : (refreshBattBtn.hovered ? "#F1F5F9" : "transparent")
+                                }
+                                contentItem: Item {
+                                    FitIcon {
+                                        anchors.centerIn: parent
+                                        name: "refresh"
+                                        size: 12
+                                        color: "#64748B"
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -83,7 +108,7 @@ ScrollView {
                     color: "#E2E8F0"
                 }
 
-                Flow {
+                RowLayout {
                     Layout.fillWidth: true
                     spacing: 10
 
@@ -91,8 +116,9 @@ ScrollView {
                         id: syncTimeBtn
                         padding: 0
                         enabled: appController.isConnected
-                        implicitHeight: 44
-                        implicitWidth: syncTimeRow.implicitWidth + 32
+                        Layout.fillWidth: root.availableWidth < 540
+                        Layout.preferredWidth: root.availableWidth < 540 ? 1 : syncTimeRow.implicitWidth + 32
+                        implicitHeight: 42
                         onClicked: appController.syncTimeNow()
                         background: Rectangle {
                             radius: 10
@@ -102,12 +128,12 @@ ScrollView {
                             Row {
                                 id: syncTimeRow
                                 anchors.centerIn: parent
-                                spacing: 8
-                                FitIcon { anchors.verticalCenter: parent.verticalCenter; name: "time"; size: 17; color: "#FFFFFF" }
+                                spacing: 7
+                                FitIcon { anchors.verticalCenter: parent.verticalCenter; name: "time"; size: 16; color: "#FFFFFF" }
                                 Label {
                                     anchors.verticalCenter: parent.verticalCenter
-                                    text: qsTr("Sync Time Now")
-                                    font.pixelSize: 14
+                                    text: qsTr("Sync Time")
+                                    font.pixelSize: 13
                                     font.weight: Font.DemiBold
                                     color: "#FFFFFF"
                                 }
@@ -119,8 +145,9 @@ ScrollView {
                         id: findWatchBtn
                         padding: 0
                         enabled: appController.isConnected
-                        implicitHeight: 44
-                        implicitWidth: findWatchRow.implicitWidth + 32
+                        Layout.fillWidth: root.availableWidth < 540
+                        Layout.preferredWidth: root.availableWidth < 540 ? 1 : findWatchRow.implicitWidth + 32
+                        implicitHeight: 42
                         onClicked: appController.triggerFindWatch()
                         background: Rectangle {
                             radius: 10
@@ -131,12 +158,12 @@ ScrollView {
                             Row {
                                 id: findWatchRow
                                 anchors.centerIn: parent
-                                spacing: 8
-                                FitIcon { anchors.verticalCenter: parent.verticalCenter; name: "find"; size: 17; color: "#0F172A" }
+                                spacing: 7
+                                FitIcon { anchors.verticalCenter: parent.verticalCenter; name: "find"; size: 16; color: "#0F172A" }
                                 Label {
                                     anchors.verticalCenter: parent.verticalCenter
                                     text: qsTr("Find Watch")
-                                    font.pixelSize: 14
+                                    font.pixelSize: 13
                                     font.weight: Font.DemiBold
                                     color: "#0F172A"
                                 }
@@ -144,37 +171,107 @@ ScrollView {
                         }
                     }
 
-                    AbstractButton {
-                        id: refreshBattBtn
-                        padding: 0
-                        enabled: appController.isConnected
-                        implicitHeight: 44
-                        implicitWidth: refreshBattRow.implicitWidth + 32
-                        onClicked: appController.refreshBattery()
-                        background: Rectangle {
-                            radius: 10
-                            color: refreshBattBtn.pressed ? "#F8FAFC" : "#FFFFFF"
-                            border.width: 1
-                            border.color: "#CBD5E1"
-                            opacity: refreshBattBtn.enabled ? 1.0 : 0.5
+                    Item {
+                        visible: root.availableWidth >= 540
+                        Layout.fillWidth: true
+                    }
+                }
+            }
+        }
+
+        // Today's Activity Card (same size as status cards below, directly above Last Time Sync)
+        GridLayout {
+            Layout.fillWidth: true
+            columns: root.width < 680 ? 1 : 3
+            columnSpacing: 16
+            rowSpacing: 16
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredWidth: 1
+                implicitHeight: 112
+                radius: 14
+                color: "#FFFFFF"
+                border.color: "#E2E8F0"
+                border.width: 1
+
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.openActivityRequested()
+                }
+
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.margins: 18
+                    spacing: 6
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 6
+                        FitIcon { name: "activity"; size: 15; color: "#2563EB" }
+                        Label {
+                            text: qsTr("Today's Activity")
+                            font.pixelSize: 12
+                            color: "#64748B"
+                            Layout.fillWidth: true
                         }
-                        contentItem: Item {
-                            Row {
-                                id: refreshBattRow
-                                anchors.centerIn: parent
-                                spacing: 8
-                                FitIcon { anchors.verticalCenter: parent.verticalCenter; name: "battery"; size: 17; color: "#475569" }
-                                Label {
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    text: qsTr("Refresh Battery")
-                                    font.pixelSize: 14
-                                    font.weight: Font.Medium
-                                    color: "#0F172A"
+                        AbstractButton {
+                            id: refreshActivityBtn
+                            padding: 0
+                            enabled: appController.isConnected && !appController.isSyncingActivity
+                            implicitWidth: 24
+                            implicitHeight: 24
+                            onClicked: appController.refreshActivity()
+                            background: Rectangle {
+                                radius: 6
+                                color: refreshActivityBtn.pressed ? "#E2E8F0" : (refreshActivityBtn.hovered ? "#F1F5F9" : "transparent")
+                                opacity: refreshActivityBtn.enabled ? 1.0 : 0.4
+                            }
+                            contentItem: Item {
+                                FitIcon {
+                                    anchors.centerIn: parent
+                                    name: "refresh"
+                                    size: 13
+                                    color: "#64748B"
                                 }
                             }
                         }
                     }
+
+                    Label {
+                        text: (appController.todaySteps >= 0 ? appController.todaySteps.toLocaleString() : "--")
+                              + qsTr(" steps · ")
+                              + (appController.todayDistanceMeters >= 0
+                                 ? appController.formatDistanceWithUnit(appController.todayDistanceMeters)
+                                 : "-- " + appController.distanceUnit)
+                        font.pixelSize: 15
+                        font.weight: Font.DemiBold
+                        color: "#0F172A"
+                        elide: Text.ElideRight
+                        Layout.fillWidth: true
+                    }
+
+                    Label {
+                        text: qsTr("Daily goal: %1").arg(appController.formatDistanceWithUnit(appController.dailyDistanceGoalMeters))
+                        font.pixelSize: 12
+                        color: "#64748B"
+                        elide: Text.ElideRight
+                        Layout.fillWidth: true
+                    }
                 }
+            }
+
+            Item {
+                visible: root.width >= 680
+                Layout.fillWidth: true
+                Layout.preferredWidth: 1
+            }
+
+            Item {
+                visible: root.width >= 680
+                Layout.fillWidth: true
+                Layout.preferredWidth: 1
             }
         }
 

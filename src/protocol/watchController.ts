@@ -18,7 +18,9 @@ export interface WatchDeviceInfo {
   manufacturer: string;
   model: string;
   firmware: string;
+  software: string;
   hardware: string;
+  serial: string;
 }
 
 export interface BleConnectionResult {
@@ -101,6 +103,7 @@ export class WebBleWatchSession {
   onSpo2Received?: (spo2: number) => void;
   onBloodPressureReceived?: (systolic: number, diastolic: number) => void;
   onWatchActionReceived?: (actionCode: number) => void;
+  onDeviceInfoReceived?: (patch: Partial<WatchDeviceInfo>) => void;
 
   get isVirtual(): boolean {
     return this.virtual;
@@ -120,14 +123,18 @@ export class WebBleWatchSession {
       ? {
           manufacturer: 'BLE-WATCH-V2',
           model: 'Watch V2 Demo',
-          firmware: 'FEEA-2.0.4',
+          firmware: 'FEEA-2.2.4',
+          software: '-',
           hardware: 'HW-REV2',
+          serial: '-',
         }
       : {
           manufacturer: 'BLE-WATCH-V1',
           model: 'Watch V1 Demo',
           firmware: 'FEEA-1.4.2',
+          software: '-',
           hardware: 'HW-REV1',
+          serial: '-',
         };
 
     return {
@@ -191,30 +198,7 @@ export class WebBleWatchSession {
     this.gatt = gatt;
 
     // 1. Device Information service (0x180A) first so V1/V2 protocol version is known immediately
-    const deviceInfo: WatchDeviceInfo = {
-      manufacturer: '-',
-      model: '-',
-      firmware: '-',
-      hardware: '-',
-    };
-    try {
-      const infoSvc = await gatt.getPrimaryService(GATT_UUIDS.SERVICE_DEVICE_INFO);
-      const readText = async (uuid: number): Promise<string> => {
-        try {
-          const ch = await infoSvc.getCharacteristic(uuid);
-          const dv = await ch.readValue();
-          return textDecoder.decode(dv).replace(/\0/g, '').trim() || '-';
-        } catch {
-          return '-';
-        }
-      };
-      deviceInfo.manufacturer = await readText(GATT_UUIDS.CHAR_MANUFACTURER_NAME);
-      deviceInfo.model = await readText(GATT_UUIDS.CHAR_MODEL_NUMBER);
-      deviceInfo.firmware = await readText(GATT_UUIDS.CHAR_FIRMWARE_REV);
-      deviceInfo.hardware = await readText(GATT_UUIDS.CHAR_HARDWARE_REV);
-    } catch {
-      // Optional on some watches
-    }
+    const deviceInfo = await this.readDeviceInfoGatt();
 
     let discoveredServicesSummary = '';
     try {
@@ -431,6 +415,28 @@ export class WebBleWatchSession {
       const cmd = packet[4] ?? 0x00;
       const version: 'v1' | 'v2' = (packet[2] & 0xf0) === 0x10 ? 'v1' : 'v2';
 
+      if (cmd === FEEA_CMD.GET_DEVICE_INFO && packet.length >= 6) {
+        const sub = packet[5];
+        const encoder = new TextEncoder();
+        const text =
+          sub === 0x00
+            ? version === 'v1'
+              ? 'BLE-WATCH-V1'
+              : 'BLE-WATCH-V2'
+            : sub === 0x01
+            ? version === 'v1'
+              ? 'FEEA-1.4.2'
+              : 'FEEA-2.2.4'
+            : '';
+        const textBytes = encoder.encode(text);
+        const payload = new Uint8Array(1 + textBytes.length);
+        payload[0] = sub;
+        payload.set(textBytes, 1);
+        const responseFrame = framePacket(version, FEEA_CMD.GET_DEVICE_INFO, payload);
+        this.dispatchParsedHealth(parseFeeaHealthResponse(responseFrame));
+        return { chunks: chunks.length, ackHex: bytesToHex(responseFrame) };
+      }
+
       if (cmd === FEEA_CMD.GET_TODAY_ACTIVITY) {
         await new Promise((resolve) => setTimeout(resolve, 220));
         this.virtualSyncCount += 1;
@@ -604,6 +610,45 @@ export class WebBleWatchSession {
     }
   }
 
+  async readDeviceInfoGatt(): Promise<WatchDeviceInfo> {
+    const deviceInfo: WatchDeviceInfo = {
+      manufacturer: '-',
+      model: '-',
+      firmware: '-',
+      software: '-',
+      hardware: '-',
+      serial: '-',
+    };
+    if (this.virtual || !this.gatt?.connected) {
+      return deviceInfo;
+    }
+    try {
+      const infoSvc = await this.gatt.getPrimaryService(GATT_UUIDS.SERVICE_DEVICE_INFO);
+      const readText = async (uuid: number): Promise<string> => {
+        try {
+          const ch = await infoSvc.getCharacteristic(uuid);
+          const dv = await ch.readValue();
+          return textDecoder.decode(dv).replace(/\0/g, '').trim() || '-';
+        } catch {
+          return '-';
+        }
+      };
+      deviceInfo.manufacturer = await readText(GATT_UUIDS.CHAR_MANUFACTURER_NAME);
+      deviceInfo.model = await readText(GATT_UUIDS.CHAR_MODEL_NUMBER);
+      deviceInfo.firmware = await readText(GATT_UUIDS.CHAR_FIRMWARE_REV);
+      deviceInfo.software = await readText(GATT_UUIDS.CHAR_SOFTWARE_REV);
+      deviceInfo.hardware = await readText(GATT_UUIDS.CHAR_HARDWARE_REV);
+      deviceInfo.serial = await readText(GATT_UUIDS.CHAR_SERIAL_NUMBER);
+      // Some 0xFEEA watches place firmware revision in 0x2A28 (Software Revision) when 0x2A26 is omitted
+      if (deviceInfo.firmware === '-' && deviceInfo.software !== '-') {
+        deviceInfo.firmware = deviceInfo.software;
+      }
+    } catch {
+      // Optional on some watches
+    }
+    return deviceInfo;
+  }
+
   async readBattery(): Promise<number | null> {
     if (this.virtual) {
       return 84;
@@ -701,6 +746,8 @@ export class WebBleWatchSession {
       this.onBatteryChanged?.(parsed.batteryPercent);
     } else if (parsed.type === 'watchAction' && parsed.watchActionCode >= 0) {
       this.onWatchActionReceived?.(parsed.watchActionCode);
+    } else if (parsed.type === 'deviceInfo' && parsed.deviceInfoField && parsed.deviceInfoValue) {
+      this.onDeviceInfoReceived?.({ [parsed.deviceInfoField]: parsed.deviceInfoValue });
     }
   }
 
