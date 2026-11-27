@@ -42,9 +42,11 @@ ScrollView {
                         spacing: 4
                         Label {
                             text: appController.isConnected ? appController.deviceName : qsTr("No Watch Connected")
-                            font.pixelSize: 20
+                            font.pixelSize: 24
                             font.weight: Font.Bold
                             color: "#0F172A"
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
                         }
                         Label {
                             text: appController.isConnected

@@ -18,10 +18,10 @@ ScrollView {
     }
 
     ColumnLayout {
-        width: Math.min(root.availableWidth - 48, 840)
+        width: root.availableWidth < 540 ? root.availableWidth - 24 : Math.min(root.availableWidth - 48, 840)
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.top: parent.top
-        anchors.topMargin: 24
+        anchors.topMargin: 20
         spacing: 20
 
         // Host Clock & Instant Sync Card
@@ -96,13 +96,28 @@ ScrollView {
 
                 RowLayout {
                     Layout.fillWidth: true
+                    spacing: 12
                     ColumnLayout {
                         Layout.fillWidth: true
+                        Layout.minimumWidth: 0
                         spacing: 2
-                        Label { text: qsTr("24-Hour Time Format"); font.weight: Font.Medium; color: "#0F172A" }
-                        Label { text: qsTr("Sends FEEA command 0x27 immediately when connected"); font.pixelSize: 12; color: "#64748B" }
+                        Label {
+                            text: qsTr("24-Hour Time Format")
+                            font.weight: Font.Medium
+                            color: "#0F172A"
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
+                        Label {
+                            text: qsTr("Sends FEEA command 0x27 immediately when connected")
+                            font.pixelSize: 12
+                            color: "#64748B"
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
                     }
                     Switch {
+                        Layout.alignment: Qt.AlignVCenter
                         checked: appController.use24Hour
                         onToggled: appController.use24Hour = checked
                     }
@@ -112,13 +127,28 @@ ScrollView {
 
                 RowLayout {
                     Layout.fillWidth: true
+                    spacing: 12
                     ColumnLayout {
                         Layout.fillWidth: true
+                        Layout.minimumWidth: 0
                         spacing: 2
-                        Label { text: qsTr("Auto-Sync on Connect"); font.weight: Font.Medium; color: "#0F172A" }
-                        Label { text: qsTr("Automatically pushes local time whenever the watch reconnects"); font.pixelSize: 12; color: "#64748B" }
+                        Label {
+                            text: qsTr("Auto-Sync on Connect")
+                            font.weight: Font.Medium
+                            color: "#0F172A"
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
+                        Label {
+                            text: qsTr("Automatically pushes local time whenever the watch reconnects")
+                            font.pixelSize: 12
+                            color: "#64748B"
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
                     }
                     Switch {
+                        Layout.alignment: Qt.AlignVCenter
                         checked: appController.autoSyncOnConnect
                         onToggled: appController.autoSyncOnConnect = checked
                     }
