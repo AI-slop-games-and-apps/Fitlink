@@ -280,7 +280,7 @@ export function DeviceProtocolView({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h3 className="text-base font-semibold text-[#0F172A]">BLE Packet Activity Log</h3>
 
-          <div className="flex items-center gap-3">
+          <div className="flex max-w-full flex-wrap items-center gap-2">
             <div className="inline-flex rounded-xl bg-[#F1F5F9] p-1">
               {(['all', 'tx', 'rx', 'system'] as const).map((dir) => (
                 <button
@@ -298,33 +298,38 @@ export function DeviceProtocolView({
               ))}
             </div>
 
-            <button
-              type="button"
-              disabled={filteredLog.length === 0}
-              onClick={() => {
-                const lines = filteredLog.map(
-                  (e) =>
-                    `${e.timestamp}\t${e.direction}\t${e.actionLabel}\t${e.hexPreview}\t${e.chunkCount}`
-                );
-                void navigator.clipboard?.writeText(lines.join('\n')).then(() => {
-                  setCopiedLog(true);
-                  window.setTimeout(() => setCopiedLog(false), 1800);
-                });
-              }}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium text-[#64748B] hover:bg-[#F1F5F9] hover:text-[#0F172A] disabled:cursor-not-allowed disabled:opacity-40 whitespace-nowrap"
-            >
-              {copiedLog ? <Check className="h-3.5 w-3.5 text-[#16A34A]" /> : <Copy className="h-3.5 w-3.5" />}
-              <span>{copiedLog ? 'Copied' : 'Copy'}</span>
-            </button>
+            <div className="inline-flex items-center gap-1">
+              <button
+                type="button"
+                disabled={filteredLog.length === 0}
+                title={copiedLog ? 'Copied' : 'Copy packet log'}
+                aria-label={copiedLog ? 'Copied packet log' : 'Copy packet log'}
+                onClick={() => {
+                  const lines = filteredLog.map(
+                    (e) =>
+                      `${e.timestamp}\t${e.direction}\t${e.actionLabel}\t${e.hexPreview}\t${e.chunkCount}`
+                  );
+                  void navigator.clipboard?.writeText(lines.join('\n')).then(() => {
+                    setCopiedLog(true);
+                    window.setTimeout(() => setCopiedLog(false), 1800);
+                  });
+                }}
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[#64748B] transition-colors hover:bg-[#F1F5F9] hover:text-[#0F172A] focus-visible:outline-2 focus-visible:outline-[#2563EB] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {copiedLog ? <Check className="h-4 w-4 text-[#16A34A]" /> : <Copy className="h-4 w-4" />}
+              </button>
 
-            <button
-              type="button"
-              onClick={onClearPacketLog}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium text-[#64748B] hover:bg-[#F1F5F9] hover:text-[#0F172A] whitespace-nowrap"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              <span>Clear</span>
-            </button>
+              <button
+                type="button"
+                disabled={packetLog.length === 0}
+                title="Clear packet log"
+                aria-label="Clear packet log"
+                onClick={onClearPacketLog}
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[#64748B] transition-colors hover:bg-[#F1F5F9] hover:text-[#DC2626] focus-visible:outline-2 focus-visible:outline-[#2563EB] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         </div>
 

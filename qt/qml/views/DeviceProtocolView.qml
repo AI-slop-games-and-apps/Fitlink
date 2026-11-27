@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
+import FitLink
 
 ScrollView {
     id: root
@@ -342,8 +343,86 @@ ScrollView {
 
                 RowLayout {
                     Layout.fillWidth: true
-                    Label { text: qsTr("BLE Packet Activity Log"); font.pixelSize: 16; font.weight: Font.DemiBold; color: "#0F172A"; Layout.fillWidth: true }
-                    Button { text: qsTr("Clear"); flat: true; onClicked: appController.clearPacketLog() }
+                    spacing: 6
+                    Label {
+                        text: qsTr("BLE Packet Activity Log")
+                        font.pixelSize: 16
+                        font.weight: Font.DemiBold
+                        color: "#0F172A"
+                        elide: Text.ElideRight
+                        Layout.fillWidth: true
+                    }
+
+                    TextEdit {
+                        id: clipboardHelper
+                        visible: false
+                    }
+
+                    Timer {
+                        id: copiedResetTimer
+                        interval: 1800
+                        onTriggered: copyLogBtn.copied = false
+                    }
+
+                    AbstractButton {
+                        id: copyLogBtn
+                        property bool copied: false
+                        padding: 0
+                        enabled: appController.packetLog.length > 0
+                        implicitWidth: 32
+                        implicitHeight: 32
+                        ToolTip.visible: hovered
+                        ToolTip.text: copied ? qsTr("Copied") : qsTr("Copy packet log")
+                        onClicked: {
+                            var lines = []
+                            for (var i = 0; i < appController.packetLog.length; ++i) {
+                                var e = appController.packetLog[i]
+                                lines.push(e.timestamp + "\t" + e.direction + "\t" + e.actionLabel + "\t" + e.hexPreview + "\t" + e.chunkCount)
+                            }
+                            clipboardHelper.text = lines.join("\n")
+                            clipboardHelper.selectAll()
+                            clipboardHelper.copy()
+                            copied = true
+                            copiedResetTimer.restart()
+                        }
+                        background: Rectangle {
+                            radius: 8
+                            color: copyLogBtn.pressed ? "#E2E8F0" : (copyLogBtn.hovered ? "#F1F5F9" : "transparent")
+                            opacity: copyLogBtn.enabled ? 1.0 : 0.4
+                        }
+                        contentItem: Item {
+                            FitIcon {
+                                anchors.centerIn: parent
+                                name: copyLogBtn.copied ? "check" : "copy"
+                                size: 16
+                                color: copyLogBtn.copied ? "#16A34A" : "#64748B"
+                            }
+                        }
+                    }
+
+                    AbstractButton {
+                        id: clearLogBtn
+                        padding: 0
+                        enabled: appController.packetLog.length > 0
+                        implicitWidth: 32
+                        implicitHeight: 32
+                        ToolTip.visible: hovered
+                        ToolTip.text: qsTr("Clear packet log")
+                        onClicked: appController.clearPacketLog()
+                        background: Rectangle {
+                            radius: 8
+                            color: clearLogBtn.pressed ? "#FEE2E2" : (clearLogBtn.hovered ? "#F1F5F9" : "transparent")
+                            opacity: clearLogBtn.enabled ? 1.0 : 0.4
+                        }
+                        contentItem: Item {
+                            FitIcon {
+                                anchors.centerIn: parent
+                                name: "trash"
+                                size: 16
+                                color: clearLogBtn.hovered ? "#DC2626" : "#64748B"
+                            }
+                        }
+                    }
                 }
 
                 Repeater {
